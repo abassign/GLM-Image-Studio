@@ -11,3 +11,7 @@ __pycache__/
 
 # Ignora file di log o temporanei
 *.log
+# Editor files
+*.swp
+*.*~
+*.kate-swp
