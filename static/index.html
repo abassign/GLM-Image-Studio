@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>GLM Studio</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="header">
+        <div class="logo">🧩 GLM-Image Studio <span class="badge">ROCm</span></div>
+        <div class="nav-tabs">
+            <button class="nav-btn active" onclick="switchTab('t2i', this)">Text to Image</button>
+            <button class="nav-btn" onclick="switchTab('i2i', this)">Image to Image</button>
+            <button class="nav-btn" onclick="switchTab('i2t', this)">Image to Text</button>
+        </div>
+        <div class="controls">
+            <button id="btn-exit" class="btn btn-danger">EXIT</button>
+        </div>
+    </div>
+
+    <div class="main-layout" style="flex-direction: column;">
+
+        <!-- GLOBAL STATUS BAR -->
+        <div class="status-bar" id="status-bar"
+            style="border-radius: 0; border: none; border-bottom: 1px solid var(--accent); flex-shrink: 0; position: relative;">
+            <span class="status-icon">Ready</span>
+            <span id="status-text" class="status-text">System Idle</span>
+            <span id="timer" class="status-timer">0.0s</span>
+
+            <!-- LOG TOGGLE BUTTON -->
+            <button id="btn-log-toggle" class="status-btn" onclick="toggleSystemLog()" title="Toggle System Log">
+                ▼
+            </button>
+        </div>
+
+        <!-- SYSTEM LOG DRAWER -->
+        <div id="system-log-drawer" class="system-log-drawer collapsed">
+            <div class="console" id="console" style="height: 100%; border: none; border-radius: 0;">
+                <div class="log-line">System initialized.</div>
+            </div>
+        </div>
+
+        <div class="main-content-row" style="display: flex; flex: 1; overflow: hidden; width: 100%;">
+
+            <div class="panel-left">
+
+                <!-- HISTORY BUTTON: T2I (In testa) & I2T (Prima del prompt) -->
+                <!-- We place it before Prompt, but "In testa" for T2I might mean very top of panel. -->
+                <!-- Let's place a dedicated button at the top -->
+                <button id="btn-hist-top" class="btn-block btn-history-trigger hidden" onclick="toggleHistory()">🕒
+                    History
+                    Gallery</button>
+
+                <!-- Upload Panel -->
+                <div id="upload-panel" class="panel secondary-panel hidden">
+                    <!-- HISTORY BUTTON: I2I -->
+                    <button id="btn-hist-i2i" class="btn-block btn-history-trigger hidden" onclick="toggleHistory()"
+                        style="margin-bottom:10px;">🕒 History Gallery</button>
+
+                    <div class="input-image-row">
+                        <!-- SLOT 1 -->
+                        <div class="image-input-wrapper">
+                            <div class="slot-header">
+                                <button class="btn-browse" onclick="document.getElementById('file-input').click()">📂
+                                    Browse 1</button>
+                                <button id="btn-del-1" class="btn-delete" onclick="deleteImage(1)">🗑️</button>
+                            </div>
+                            <div id="upload-zone-1" class="drop-zone">
+                                <span class="placeholder-text">Drop Image Here</span>
+                                <img id="preview-1" class="preview-img hidden" src="">
+                            </div>
+                            <input type="file" id="file-input" accept="image/*" style="display:none">
+                            <input type="hidden" id="uploaded-path">
+                        </div>
+
+                        <!-- SLOT 2 -->
+                        <div id="slot-2-container" class="image-input-wrapper">
+                            <div class="slot-header">
+                                <button class="btn-browse" onclick="document.getElementById('file-input-2').click()">📂
+                                    Browse 2</button>
+                                <button id="btn-del-2" class="btn-delete" onclick="deleteImage(2)">🗑️</button>
+                            </div>
+                            <div id="upload-zone-2" class="drop-zone">
+                                <span class="placeholder-text">Drop Image Here</span>
+                                <img id="preview-2" class="preview-img hidden" src="">
+                            </div>
+                            <input type="file" id="file-input-2" accept="image/*" style="display:none">
+                            <input type="hidden" id="uploaded-path-2">
+                        </div>
+                    </div>
+
+                    <!-- SWAP BUTTON (Horizontal Bar) -->
+                    <div id="swap-container" class="swap-container">
+                        <button class="btn-swap" onclick="swapUploadedImages()"><span>⮂ Swap Images ⮂</span></button>
+                    </div>
+                </div>
+
+                <!-- NEW: I2I Controls right here below images -->
+                <div id="i2i-specific-params" class="hidden"
+                    style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
+                    <div class="row">
+                        <div id="col-strength" class="col">
+                            <label>Image Strength: <span id="val-strength">0.75</span></label>
+                            <input type="range" id="strength" min="0.1" max="1.0" step="0.05" value="0.75">
+                            <div style="font-size:10px; color:#aaa;">Lower = More like source</div>
+                        </div>
+                        <div id="col-mix" class="col hidden">
+                            <label>Image Mix (1 ↔ 2): <span id="val-mix">0.5</span></label>
+                            <input type="range" id="mix-ratio" min="0.0" max="1.0" step="0.05" value="0.5">
+                            <div style="font-size:10px; color:#aaa;">0.0 = Img 1, 1.0 = Img 2</div>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" id="uploaded-path">
+                <input type="hidden" id="uploaded-path-2">
+
+                <div class="group">
+                    <!-- HISTORY BUTTON: I2T (Prima del prompt) - Reusing T2I button if position matches, or adding specific one? -->
+                    <!-- User said: T2I "In testa" (Head). I2T "Prima del prompt". -->
+                    <!-- If I put btn-hist-top at very top, it satisfies T2I. -->
+                    <!-- For I2T, the prompt is below upload panel. So "Prima del prompt" suggests between Upload and Prompt. -->
+                    <button id="btn-hist-i2t" class="btn-block btn-history-trigger hidden" onclick="toggleHistory()"
+                        style="margin-bottom:5px;">🕒 History Gallery</button>
+
+                    <label>Prompt / Instruction</label>
+                    <textarea id="prompt" rows="10"
+                        placeholder="Describe your imagination here... (For I2T: Ask a question about the image)">A futuristic city with flying cars, cyberpunk style, high detail, 8k</textarea>
+                </div>
+
+                <div id="params-panel">
+                    <div class="group">
+                        <div class="row">
+                            <div class="col">
+                                <label>Width: <span id="val-w">1024</span></label>
+                                <input type="range" id="width" min="512" max="2048" step="32" value="1024">
+                            </div>
+                            <div class="col">
+                                <label>Height: <span id="val-h">1024</span></label>
+                                <input type="range" id="height" min="512" max="2048" step="32" value="1024">
+                            </div>
+                        </div>
+                        <div class="row ratios">
+                            <button class="btn-sm" onclick="setRatio(1,1)">1:1</button>
+                            <button class="btn-sm" onclick="setRatio(3,4)">3:4</button>
+                            <button class="btn-sm" onclick="setRatio(9,16)">9:16</button>
+                            <button class="btn-sm" onclick="setRatio(4,3)">4:3</button>
+                            <button class="btn-sm" onclick="setRatio(16,9)">16:9</button>
+                            <button class="btn-sm btn-orig" onclick="setOriginalRatio()">🔒 Orig</button>
+                        </div>
+                    </div>
+
+                    <div class="group">
+                        <div class="row">
+                            <div class="col">
+                                <label>Steps: <span id="val-steps">30</span></label>
+                                <input type="range" id="steps" min="10" max="60" value="30">
+                            </div>
+                            <div class="col">
+                                <label>Guidance: <span id="val-cfg">1.5</span></label>
+                                <input type="range" id="guidance" min="1.0" max="10.0" step="0.1" value="1.5">
+                            </div>
+                        </div>
+                        <div class="row" style="margin-top:10px;">
+                            <div class="col">
+                                <label>Top K: <span id="val-topk">1</span></label>
+                                <!-- Start from 0.1 as requested -->
+                                <input type="range" id="topk" min="0.1" max="50" step="0.1" value="1">
+                                <div style="font-size:10px; color:#aaa;">1 = Deterministic, 50 = Creative</div>
+                            </div>
+                            <div class="col">
+                                <label>Temp: <span id="val-temp">0.6</span></label>
+                                <input type="range" id="temp" min="0.1" max="1.5" step="0.1" value="0.6">
+                                <div style="font-size:10px; color:#aaa;">0.1 = Cold, 1.0+ = Chaotic</div>
+                            </div>
+                        </div>
+
+                        <div class="row" style="margin-top:10px;">
+                            <div class="col">
+                                <label>Seed (-1 = Random)</label>
+                                <input type="number" id="seed" value="-1" class="input-text">
+                            </div>
+                            <div class="col-auto">
+                                <label class="checkbox-container">Randomize
+                                    <input type="checkbox" id="randomize" checked>
+                                    <span class="checkmark"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="group lora-section">
+                    <div class="row header-row">
+                        <label>🧩 LoRA Loader</label>
+                        <button id="btn-scan" class="btn-sm">🔄 Scan</button>
+                    </div>
+                    <input type="text" id="lora-folder" value="/app/loras" class="input-text full-width">
+                    <div id="lora-container"></div>
+                    <button id="btn-add-lora" class="btn-dashed">+ Add LoRA Slot</button>
+                </div>
+
+                <button id="btn-generate" class="btn btn-primary btn-lg">🚀 GENERATE IMAGE</button>
+            </div>
+
+            <!-- Right Section: Preview + History -->
+            <div class="panel-center-container">
+                <div class="panel-right">
+
+                    <!-- Modified Image Area without Actions overlay -->
+                    <div class="image-area" id="image-area">
+                        <div class="placeholder">Result will appear here</div>
+                        <img id="result-img" src="" style="display:none;">
+                    </div>
+
+
+
+                    <div id="text-result-area" class="text-area-container hidden">
+                        <div class="text-box-label">
+                            📝 Final Answer
+                            <div style="float:right; margin-top:-5px; display:flex; gap:5px;">
+                                <button class="btn-sm" onclick="sendPromptTo('t2i')">🖊️ To T2I</button>
+                                <button class="btn-sm" onclick="sendPromptTo('i2i')">🎨 To I2I</button>
+                            </div>
+                        </div>
+                        <div id="answer-box" class="text-box answer"></div>
+
+                        <div class="text-box-label"
+                            style="display:flex; justify-content:space-between; cursor:pointer; margin-top: 15px;"
+                            onclick="toggleThinking()">
+                            <span><span id="thinking-toggle-icon">▶</span> 🧠 Thinking Process</span>
+                            <div style="margin-top:-5px; display:flex; gap:5px;" onclick="event.stopPropagation()">
+                                <button class="btn-sm" onclick="sendThinkingTo('t2i')">🖊️ To T2I</button>
+                                <button class="btn-sm" onclick="sendThinkingTo('i2i')">🎨 To I2I</button>
+                            </div>
+                        </div>
+                        <div id="thinking-box" class="text-box thinking collapsed">Analysis starting...</div>
+                    </div>
+                </div>
+
+                <!-- HISTORY PANEL COLLAPSIBLE -->
+                <div id="history-panel" class="history-panel collapsed">
+                    <div class="history-header">
+                        <span>🕒 History</span>
+                        <div id="history-toolbar">
+                            <button id="btn-history-filter" class="btn-xs" title="Show All / Filter Mode"
+                                onclick="toggleHistoryFilter()">∞ All</button>
+                            <button id="btn-size-toggle" class="btn-xs" title="Toggle Size"
+                                onclick="toggleHistorySize()">🔽</button>
+                            <button id="btn-page-prev" class="btn-xs" title="Prev Page"
+                                onclick="changePage(-1)">◀</button>
+                            <button id="btn-page-next" class="btn-xs" title="Next Page"
+                                onclick="changePage(1)">▶</button>
+                            <button class="close-btn" onclick="toggleHistory()">×</button>
+                        </div>
+                    </div>
+                    <div id="history-list" class="history-list">
+                        <!-- Items injected by JS -->
+                    </div>
+                </div>
+
+                <!-- EXPAND BUTTON (Visible when history is closed) -->
+                <div id="history-toggle-btn" class="history-toggle" onclick="toggleHistory()">
+                    ◀
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="script.js?v=6"></script>
+</body>
+
+</html>

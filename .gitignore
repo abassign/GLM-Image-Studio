@@ -1,0 +1,28 @@
+# Ignora le cartelle di output e cache
+# Ignora le cartelle di output e cache
+outputs/*
+!outputs/.gitkeep
+hf_cache/
+
+# Ignora file di sistema e python cache
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+.env
+
+# Ignora file di log o temporanei
+*.log
+lora_run_config.json
+# Editor files
+*.swp
+*.*~
+*.kate-swp
+
+# Ignora contenuti cartella LoRA ma mantieni la cartella
+loras/*
+!loras/.gitkeep
+
+# Ignora contenuti uploads ma mantieni la cartella
+uploads/*
+!uploads/.gitkeep
