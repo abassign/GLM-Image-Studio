@@ -2,6 +2,16 @@ import os
 import json
 import logging
 import diffusers
+from diffusers import (
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    DPMSolverMultistepScheduler,
+    KDPM2DiscreteScheduler,
+    DDIMScheduler,
+    PNDMScheduler,
+    LMSDiscreteScheduler,
+    FlowMatchEulerDiscreteScheduler
+)
 
 
 # Common Paths
@@ -24,7 +34,7 @@ def save_json(full_path, data, prefix="System"):
     except Exception as e:
         print(f"--> [{prefix} Warning] Failed to save JSON: {e}", flush=True)
 
-def save_generation_log(mode, inputs, params, outputs, image_path_for_filename=None):
+def save_generation_log(mode, inputs, params, outputs, image_path_for_filename=None, model_name="unknown"):
     """
     Unified V2 JSON Saver.
     mode: 't2i' | 'i2i' | 'i2t'
@@ -32,6 +42,7 @@ def save_generation_log(mode, inputs, params, outputs, image_path_for_filename=N
     params: dict { 'width', 'height', ... }
     outputs: dict { 'type', 'files': [], 'text_content': {} }
     image_path_for_filename: usage for determinig filename (optional)
+    model_name: str (e.g. "glm-4", "z-image-turbo")
     """
     import datetime
     import uuid
@@ -57,7 +68,8 @@ def save_generation_log(mode, inputs, params, outputs, image_path_for_filename=N
             "version": "2.0",
             "mode": mode,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "job_id": str(uuid.uuid4())
+            "job_id": str(uuid.uuid4()),
+            "model": model_name
         },
         "inputs": inputs,
         "parameters": params,
@@ -102,3 +114,72 @@ def load_loras(pipe, config_path):
 
     except Exception as e:
         print(f"--> [LoRA] ❌ Error: {e}", flush=True)
+
+def apply_scheduler(pipe, scheduler_name="euler_a"):
+    """
+    Switches the scheduler of the pipeline.
+    Common Schedulers for SDXL/Pony:
+    - Euler a (Euler Ancestral) - Great for portraits
+    - Euler - Default
+    - DPM++ 2M Karras - Generic good quality
+    - DPM++ SDE Karras - High quality but slower
+    - DDIM - Fast
+    """
+    if not scheduler_name: return
+
+    s_name = scheduler_name.lower().strip()
+    config = pipe.scheduler.config
+
+    try:
+        # Check for SD3/Z-Image specific config keys that must be preserved
+        # config is a FrozenDict, access via .get is safer than hasattr for keys
+        extra_args = {}
+        if config.get("use_dynamic_shifting", False):
+            extra_args["use_dynamic_shifting"] = True
+        
+        # SD3/Z-Image Logic: If time_shift_type is present (exponential), 
+        # use_dynamic_shifting MUST be True for the assertion to pass.
+        is_sd3 = False
+        if config.get("time_shift_type", None):
+             is_sd3 = True
+             extra_args["time_shift_type"] = config.get("time_shift_type")
+             extra_args["use_dynamic_shifting"] = True # FORCE TRUE if shifting is used
+
+        # Debug
+        if extra_args:
+             print(f"--> [Scheduler] Preserving Z-Image/SD3 args: {extra_args}", flush=True)
+
+        # Z-Image / SD3 Compatibility Layer
+        # SD3 pipelines pass flow-matching args (like 'mu') that standard schedulers REJECT.
+        # We must force a Flow-Matching compatible scheduler.
+        if is_sd3:
+             if "FlowMatch" not in str(type(pipe.scheduler)):
+                 print(f"--> [Scheduler] ⚠️ Z-Image/SD3 Detected. '{s_name}' is incompatible. Forcing FlowMatchEulerDiscreteScheduler.", flush=True)
+                 pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(config, **extra_args)
+             return # Stop here, do not attempt to apply other schedulers.
+
+        # Standard SDXL/Pony Scheduler Logic
+        if s_name == "euler_a":
+            pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(config, **extra_args)
+        
+        elif s_name == "euler":
+            pipe.scheduler = EulerDiscreteScheduler.from_config(config, **extra_args)
+        
+        elif s_name == "dpm++_2m_karras" or s_name == "dpm_2m_karras":
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(config, use_karras_sigmas=True, algorithm_type="dpmsolver++", **extra_args)
+        
+        elif s_name == "dpm++_2m" or s_name == "dpm_2m":
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(config, algorithm_type="dpmsolver++", **extra_args)
+        
+        elif s_name == "dpm++_sde_karras" or s_name == "dpm_sde_karras":
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(config, use_karras_sigmas=True, algorithm_type="sde-dpmsolver++", **extra_args)
+        
+        elif s_name == "ddim":
+             pipe.scheduler = DDIMScheduler.from_config(config)
+        
+        elif s_name == "lms_karras":
+             pipe.scheduler = LMSDiscreteScheduler.from_config(config, use_karras_sigmas=True)
+        
+        print(f"--> [Scheduler] Applied: {s_name} ({type(pipe.scheduler).__name__})", flush=True)
+    except Exception as e:
+        print(f"--> [Scheduler] Failed to switch to {s_name}: {e}. Keeping default.", flush=True)

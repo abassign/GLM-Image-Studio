@@ -20,6 +20,7 @@
     *   **Visual Thinking Process**: View the model's internal step-by-step reasoning (collapsible view).
     *   **Native Resolution**: Supports up to 4K inputs for analyzing fine details.
     *   **Structured Output**: Separates the "Thinking Process" from the "Final Answer" for clarity.
+*   **Upscale & Refine**: Tiled upscaling using `stable-diffusion-x4-upscaler` with variable scale (1x-4x), `bfloat16` precision for artifact-free results, and post-process alignment.
 
 ### 🚀 Advanced-Grade UI
 *   **Smart History Gallery**:
@@ -28,6 +29,8 @@
     *   **Bulk Restore**: One-click **`[All]`** button instantly reloads dual-source inputs.
     *   **Compact Layout**: Optimized 128px view with high-contrast timestamps (~20% more space efficient).
     *   **Persistence**: Automatically saves all generations to disk.
+*   **Model Management**: Dynamic model loading from `models/` directory with UI-based Trash/Delete operations.
+*   **Advanced Control**: Selectable Samplers (Euler a, DPM++ 2M Karras, etc.) and native **GGUF** model support for low-VRAM environments.
 *   **LoRA Management**: Hot-swappable LoRA adapters with strength control.
 *   **Real-time Monitoring**: Integrated system status, timer, and console logs directly in the dashboard.
 *   **State Isolation**: Independent prompt and result buffers for T2I, I2I, and I2T modes prevent accidental data loss.
@@ -90,6 +93,8 @@ chmod +x run_glm.sh
 ├── process_t2i.py      # Independent T2I Worker
 ├── process_i2i.py      # Independent I2I Worker
 ├── process_i2t.py      # Independent I2T Worker
+├── process_upscale.py  # Independent Upscale Worker
+├── process_zimage.py   # Z-Image Turbo / GGUF Worker
 ├── shared_utils.py     # Shared logging & config logic
 ├── lora_manager.py     # LoRA scanning & config generation
 ├── run_glm.sh          # Docker launch script
@@ -105,6 +110,7 @@ chmod +x run_glm.sh
 
 *   **Generation**: `zai-org/GLM-Image` (Flux.1 / SDXL styled pipelines)
 *   **Vision/Reasoning**: `zai-org/GLM-4.1V-9B-Thinking`
+*   **Turbo**: `zai-org/Z-Image-Turbo` (GGUF Quantized, fast inference)
 
 ---
 

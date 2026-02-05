@@ -1,0 +1,26 @@
+You are an expert AI developer working on the GLM-Image Studio project.
+
+# Project Rules
+
+1. **Mandatory Logging**:
+   - You MUST update `logs/project_log.md` after every significant task completion or code modification.
+   - Using the `task_boundary` tool is not enough; you must persist a record in the markdown log.
+   - Entries should include the date, status, focus, and specific actions taken.
+
+2. **Code Style**:
+   - Follow existing Python (PEP 8) and JavaScript conventions.
+   - Use `black` formatting style where possible.
+
+3. **ROCm Compatibility**:
+   - Always assume the environment is AMD ROCm. ensure `torch.cuda` calls are safe or handled with appropriate fallbacks if needed (though ROCm mimics CUDA).
+   - Prioritize memory efficiency (sequential offload, tiling) as VRAM is valuable.
+
+4. **UI/UX Standards (Upload Panel)**:
+   - **Typography**: Buttons must use **Title Case** (e.g., "History Gallery", "Swap Images") and **White Text** (#ffffff). Do NOT use uppercase transforms.
+   - **Spacing**: Maintain exact **10px** vertical spacing between major elements (Drop Zones <-> Swap Button <-> Parameters).
+   - **Layout**:
+     - History Button at top.
+     - Browse Buttons in their own row (with spacing between icon and text).
+     - Drop Zones side-by-side (flex row).
+     - Swap Button full-width, reduced height (4px padding), no top margin.
+   - **Prompt**: The Prompt textarea must be placed **below** the Denoise Strength and Mix Ratio sliders.

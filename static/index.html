@@ -17,124 +17,213 @@
         <div class="nav-tabs">
             <button class="nav-btn active" onclick="switchTab('t2i', this)">Text to Image</button>
             <button class="nav-btn" onclick="switchTab('i2i', this)">Image to Image</button>
-            <button class="nav-btn" onclick="switchTab('i2t', this)">Image to Text</button>
+            <button class="nav-btn" onclick="switchTab('i2t', this)">Image Analysis</button>
+            <button class="nav-btn" onclick="switchTab('upscale', this)">Upscale (4x)</button>
+            <button class="nav-btn" onclick="switchTab('restore', this)">Restoration 🪄</button>
         </div>
-        <div class="controls">
-            <button id="btn-exit" class="btn btn-danger">EXIT</button>
-        </div>
+        <div style="flex:1"></div>
+        <button id="btn-exit" class="btn btn-danger">EXIT</button>
+    </div>
     </div>
 
     <div class="main-layout" style="flex-direction: column;">
-
-        <!-- GLOBAL STATUS BAR -->
-        <div class="status-bar" id="status-bar"
-            style="border-radius: 0; border: none; border-bottom: 1px solid var(--accent); flex-shrink: 0; position: relative;">
-            <span class="status-icon">Ready</span>
-            <span id="status-text" class="status-text">System Idle</span>
-            <span id="timer" class="status-timer">0.0s</span>
-
-            <!-- LOG TOGGLE BUTTON -->
-            <button id="btn-log-toggle" class="status-btn" onclick="toggleSystemLog()" title="Toggle System Log">
-                ▼
-            </button>
-        </div>
-
-        <!-- SYSTEM LOG DRAWER -->
-        <div id="system-log-drawer" class="system-log-drawer collapsed">
-            <div class="console" id="console" style="height: 100%; border: none; border-radius: 0;">
-                <div class="log-line">System initialized.</div>
+        <!-- 1. FULL WIDTH STATUS BAR -->
+        <div id="status-bar" class="status-bar">
+            <div style="display:flex; align-items:center; gap:5px; flex:1; min-width:0;">
+                <span class="status-icon">STATUS</span>
+                <span id="status-text" class="status-text">Ready</span>
             </div>
+            <span id="timer" class="status-timer">0.0s</span>
+            <button id="btn-log-toggle" class="status-btn" onclick="toggleSystemLog()" title="Toggle Log">▼</button>
         </div>
 
-        <div class="main-content-row" style="display: flex; flex: 1; overflow: hidden; width: 100%;">
+        <!-- 2. FULL WIDTH SYSTEM LOG DRAWER -->
+        <div id="system-log-drawer" class="system-log-drawer collapsed">
+            <div id="console" class="console"></div>
+        </div>
 
+        <!-- 3. PANELS CONTENT (Row) -->
+        <div style="display: flex; flex: 1; overflow: hidden; width: 100%;">
             <div class="panel-left">
 
-                <!-- HISTORY BUTTON: T2I (In testa) & I2T (Prima del prompt) -->
-                <!-- We place it before Prompt, but "In testa" for T2I might mean very top of panel. -->
-                <!-- Let's place a dedicated button at the top -->
-                <button id="btn-hist-top" class="btn-block btn-history-trigger hidden" onclick="toggleHistory()">🕒
-                    History
-                    Gallery</button>
+                <!-- UPLOAD PANEL -->
+                <!-- LEGACY UPLOAD LAYOUT RESTORED -->
+                <div id="upload-panel" class="hidden"
+                    style="margin-bottom:5px; display:flex; flex-direction:column; gap:10px;">
 
-                <!-- Upload Panel -->
-                <div id="upload-panel" class="panel secondary-panel hidden">
-                    <!-- HISTORY BUTTON: I2I -->
-                    <button id="btn-hist-i2i" class="btn-block btn-history-trigger hidden" onclick="toggleHistory()"
-                        style="margin-bottom:10px;">🕒 History Gallery</button>
+                    <!-- 1. History Button (Top) -->
+                    <!-- 1. History Button (Top) -->
+                    <button class="btn" onclick="toggleHistory()"
+                        style="width:100%; background:#2d2d2d; border:1px solid #444; color:#ffffff; margin-bottom:5px;">🕒&nbsp;
+                        History Gallery</button>
 
-                    <div class="input-image-row">
-                        <!-- SLOT 1 -->
-                        <div class="image-input-wrapper">
-                            <div class="slot-header">
-                                <button class="btn-browse" onclick="document.getElementById('file-input').click()">📂
-                                    Browse 1</button>
-                                <button id="btn-del-1" class="btn-delete" onclick="deleteImage(1)">🗑️</button>
-                            </div>
-                            <div id="upload-zone-1" class="drop-zone">
-                                <span class="placeholder-text">Drop Image Here</span>
-                                <img id="preview-1" class="preview-img hidden" src="">
-                            </div>
-                            <input type="file" id="file-input" accept="image/*" style="display:none">
-                            <input type="hidden" id="uploaded-path">
+                    <!-- 2. Browse & Delete Buttons Row -->
+                    <div style="display:flex; gap:10px;">
+                        <!-- Slot 1 Controls -->
+                        <div style="flex:1; display:flex; gap:5px;">
+                            <button class="btn" onclick="document.getElementById('file-input').click()"
+                                style="flex:1; background:#333; border:1px solid #555; display:flex; align-items:center; justify-content:center; gap:5px; color:#ffffff;">📂&nbsp;
+                                Browse 1</button>
+                            <button id="btn-del-1" class="btn hidden" onclick="deleteImage(1)"
+                                style="width:40px; background:#500; padding:0; display:flex; align-items:center; justify-content:center; border:none; border-radius:4px;">🗑️</button>
                         </div>
-
-                        <!-- SLOT 2 -->
-                        <div id="slot-2-container" class="image-input-wrapper">
-                            <div class="slot-header">
-                                <button class="btn-browse" onclick="document.getElementById('file-input-2').click()">📂
-                                    Browse 2</button>
-                                <button id="btn-del-2" class="btn-delete" onclick="deleteImage(2)">🗑️</button>
-                            </div>
-                            <div id="upload-zone-2" class="drop-zone">
-                                <span class="placeholder-text">Drop Image Here</span>
-                                <img id="preview-2" class="preview-img hidden" src="">
-                            </div>
-                            <input type="file" id="file-input-2" accept="image/*" style="display:none">
-                            <input type="hidden" id="uploaded-path-2">
+                        <!-- Slot 2 Controls -->
+                        <div style="flex:1; display:flex; gap:5px;">
+                            <button class="btn" onclick="document.getElementById('file-input-2').click()"
+                                style="flex:1; background:#333; border:1px solid #555; display:flex; align-items:center; justify-content:center; gap:5px; color:#ffffff;">📂&nbsp;
+                                Browse 2</button>
+                            <button id="btn-del-2" class="btn hidden" onclick="deleteImage(2)"
+                                style="width:40px; background:#500; padding:0; display:flex; align-items:center; justify-content:center; border:none; border-radius:4px;">🗑️</button>
                         </div>
                     </div>
 
-                    <!-- SWAP BUTTON (Horizontal Bar) -->
-                    <div id="swap-container" class="swap-container">
-                        <button class="btn-swap" onclick="swapUploadedImages()"><span>⮂ Swap Images ⮂</span></button>
+                    <!-- 3. Drop Zones Row (Side by Side) -->
+                    <div style="display:flex; gap:10px; height:200px;">
+                        <!-- Zone 1 -->
+                        <div id="upload-zone-1" class="upload-zone"
+                            style="flex:1; padding:0; display:flex; align-items:center; justify-content:center; position:relative; border:2px dashed #444; background:#1e1e1e;"
+                            onclick="document.getElementById('file-input').click()">
+                            <div id="upload-text-1" style="pointer-events:none; color:#666;">Drop Image Here</div>
+                            <img id="preview-1" class="uploaded-preview hidden"
+                                style="max-width:100%; max-height:100%; width:auto; height:auto; margin:0; position:absolute; object-fit:contain;">
+                        </div>
+                        <!-- Zone 2 -->
+                        <div id="upload-zone-2" class="upload-zone"
+                            style="flex:1; padding:0; display:flex; align-items:center; justify-content:center; position:relative; border:2px dashed #444; background:#1e1e1e;"
+                            onclick="document.getElementById('file-input-2').click()">
+                            <div id="upload-text-2" style="pointer-events:none; color:#666;">Drop Image Here</div>
+                            <img id="preview-2" class="uploaded-preview hidden"
+                                style="max-width:100%; max-height:100%; width:auto; height:auto; margin:0; position:absolute; object-fit:contain;">
+                        </div>
                     </div>
+
+                    <!-- 4. Swap Button (Full Width) -->
+                    <div id="swap-container" class="hidden" style="width:100%;">
+                        <button class="btn" onclick="swapUploadedImages()"
+                            style="width:100%; background:#2d2d2d; border:1px solid #444; padding:4px; color:#ffffff;">⇄
+                            Swap Images ⇄</button>
+                    </div>
+
+                    <!-- Hidden Inputs & Containers for Logic Compatibility -->
+                    <div id="slot-2-container" class="hidden"></div> <!-- Dummy container so script doesn't break -->
+                    <input type="file" id="file-input" accept="image/*" class="hidden">
+                    <input type="hidden" id="uploaded-path">
+                    <input type="file" id="file-input-2" accept="image/*" class="hidden">
+                    <input type="hidden" id="uploaded-path-2">
                 </div>
 
-                <!-- NEW: I2I Controls right here below images -->
-                <div id="i2i-specific-params" class="hidden"
-                    style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
+                <!-- PARAMS MODIFICATIONS -->
+
+                <!-- PROMPT & I2I PARAMS -->
+                <div id="i2i-specific-params" class="group hidden" style="margin-bottom: 5px;">
                     <div class="row">
-                        <div id="col-strength" class="col">
-                            <label>Image Strength: <span id="val-strength">0.75</span></label>
-                            <input type="range" id="strength" min="0.1" max="1.0" step="0.05" value="0.75">
-                            <div style="font-size:10px; color:#aaa;">Lower = More like source</div>
+                        <div class="col">
+                            <label>Denoise Strength: <span id="val-strength">0.75</span></label>
+                            <input type="range" id="strength" min="0.01" max="1.0" step="0.01" value="0.75">
                         </div>
-                        <div id="col-mix" class="col hidden">
-                            <label>Image Mix (1 ↔ 2): <span id="val-mix">0.5</span></label>
+                        <div class="col" id="col-mix">
+                            <label>Mix Ratio: <span id="val-mix">0.5</span></label>
                             <input type="range" id="mix-ratio" min="0.0" max="1.0" step="0.05" value="0.5">
-                            <div style="font-size:10px; color:#aaa;">0.0 = Img 1, 1.0 = Img 2</div>
                         </div>
                     </div>
                 </div>
 
-                <input type="hidden" id="uploaded-path">
-                <input type="hidden" id="uploaded-path-2">
+                <!-- PROMPT (Moved below I2I params) -->
+                <div class="group" style="margin-bottom: 10px;">
+                    <label for="prompt">Prompt:</label>
+                    <textarea id="prompt" rows="6" placeholder="Describe your imagination here..."></textarea>
+                </div>
 
-                <div class="group">
-                    <!-- HISTORY BUTTON: I2T (Prima del prompt) - Reusing T2I button if position matches, or adding specific one? -->
-                    <!-- User said: T2I "In testa" (Head). I2T "Prima del prompt". -->
-                    <!-- If I put btn-hist-top at very top, it satisfies T2I. -->
-                    <!-- For I2T, the prompt is below upload panel. So "Prima del prompt" suggests between Upload and Prompt. -->
-                    <button id="btn-hist-i2t" class="btn-block btn-history-trigger hidden" onclick="toggleHistory()"
-                        style="margin-bottom:5px;">🕒 History Gallery</button>
+                <!-- UPSCALE Specific Params -->
+                <div id="upscale-params-panel" class="hidden"
+                    style="margin-bottom: 15px; border: 1px solid var(--border); padding: 10px; border-radius: 5px; background: rgba(0,0,0,0.1);">
+                    <div class="param-row">
+                        <label>Scale Factor: <span id="val-scale">4.0</span>x</label>
+                        <input type="range" id="scale-factor" min="1.0" max="4.0" step="0.5" value="4.0">
+                    </div>
+                    <div class="param-row" style="margin-top:5px; font-size: 11px; color:#ccc;">
+                        Output Res: <span id="upscale-res-preview" style="color:var(--accent)">-</span>
+                    </div>
+                    <div class="param-row" style="margin-top:10px;">
+                        <label>Noise Level <span id="val-noise">20</span></label>
+                        <input type="range" id="noise-level" min="0" max="100" value="20">
+                    </div>
+                    <div class="param-row" style="margin-top:5px; font-size: 11px; color:#888;">
+                        Lower noise = cleaner but less detail. Higher = more texture.
+                    </div>
+                </div>
 
-                    <label>Prompt / Instruction</label>
-                    <textarea id="prompt" rows="10"
-                        placeholder="Describe your imagination here... (For I2T: Ask a question about the image)">A futuristic city with flying cars, cyberpunk style, high detail, 8k</textarea>
+                <!-- RESTORE Specific Params -->
+                <div id="restore-params-panel" class="hidden"
+                    style="margin-bottom: 15px; border: 1px solid var(--border); padding: 10px; border-radius: 5px; background: rgba(0,0,0,0.1);">
+                    <div class="param-row">
+                        <label>Restoration Scale (Real-ESRGAN)</label>
+                        <select id="restore-scale" class="input-text full-width">
+                            <option value="1">1x (Fix only)</option>
+                            <option value="2">2x Upscale</option>
+                            <option value="4" selected>4x Upscale</option>
+                        </select>
+                    </div>
+                    <div class="param-row" style="margin-top:15px;">
+                        <label class="checkbox-container">Enhance Faces (GFPGAN)
+                            <input type="checkbox" id="face-enhance">
+                            <span class="checkmark"></span>
+                        </label>
+                        <div style="font-size:10px; color:#aaa; margin-left: 25px;">Fixes eyes/mouths in portraits.
+                        </div>
+                    </div>
                 </div>
 
                 <div id="params-panel">
+                    <div class="group">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label for="model-select">Model:</label>
+                            <button id="btn-add-model" class="btn-circle" title="Add New Model"
+                                onclick="toggleAddModel()">+</button>
+                        </div>
+                        <select id="model-select" class="input-text full-width" style="margin-bottom: 10px;">
+                            <!-- Populated Dynamically -->
+                            <option value="loading">Loading Models...</option>
+                        </select>
+
+                        <!-- ADD MODEL ROW (Hidden) -->
+                        <div id="model-add-row" class="row hidden"
+                            style="margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px;">
+                            <input type="text" id="hf-repo-input" class="input-text" style="flex:1; font-size:11px;"
+                                placeholder="Author/Repo (e.g. stabilityai/sdxl-turbo)">
+                            <button id="btn-inspect-model" class="btn-sm" onclick="inspectModel()" title="Check files"
+                                style="margin-left:5px;">🔍 Check</button>
+                            <button id="btn-get-model" class="btn-sm" onclick="downloadModel()"
+                                style="margin-left:5px;">Get Model</button>
+                        </div>
+                    </div>
+
+                    <!-- MODEL INSPECT MODAL -->
+                    <div id="model-inspect-modal" class="modal-overlay hidden">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <span>Select Files</span>
+                                <button class="close-btn" onclick="closeInspectModal()">×</button>
+                            </div>
+                            <div class="modal-body" id="model-inspect-list">
+                                <!-- File list goes here -->
+                                <div style="text-align:center; padding:20px;">Loading...</div>
+                            </div>
+                            <div style="padding: 10px 15px; border-top: 1px solid #444;">
+                                <label style="font-size: 0.85em; opacity: 0.8;">Target Subdirectory (Optional):</label>
+                                <input type="text" id="dl-target-subdir" class="input-text full-width"
+                                    placeholder="e.g. Z-Image-Turbo/transformer/gguf"
+                                    style="margin-top: 5px; background: #222; border: 1px solid #555;">
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-sm" onclick="closeInspectModal()">Cancel</button>
+                                <button class="btn btn-sm" style="background:var(--accent);"
+                                    onclick="downloadSelectedFiles()">Download Selected</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="group">
                         <div class="row">
                             <div class="col">
@@ -157,14 +246,35 @@
                     </div>
 
                     <div class="group">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label for="scheduler-select">Scheduler (Sampler):</label>
+                        </div>
+                        <select id="scheduler-select" class="input-text full-width" style="margin-bottom: 10px;">
+                            <option value="euler_a" selected>Euler Ancestral (Recommended)</option>
+                            <option value="euler">Euler</option>
+                            <option value="dpm++_2m_karras">DPM++ 2M Karras (Detail)</option>
+                            <option value="dpm++_sde_karras">DPM++ SDE Karras (Quality/Slow)</option>
+                            <option value="ddim">DDIM (Fast)</option>
+                        </select>
+                    </div>
+
+                    <div class="group">
                         <div class="row">
                             <div class="col">
-                                <label>Steps: <span id="val-steps">30</span></label>
-                                <input type="range" id="steps" min="10" max="60" value="30">
+                                <label>Steps: <span id="val-steps">15</span></label>
+                                <input type="range" id="steps" min="5" max="60" step="5" value="15">
                             </div>
                             <div class="col">
                                 <label>Guidance: <span id="val-cfg">1.5</span></label>
                                 <input type="range" id="guidance" min="1.0" max="10.0" step="0.1" value="1.5">
+                            </div>
+                        </div>
+                        <div class="row" style="margin-top: 10px;">
+                            <div class="col">
+                                <label title="Clip Skip (2 is standard for Pony/Anime)">Clip Skip: <span
+                                        id="val-clip">1</span></label>
+                                <input type="range" id="clip-skip" min="1" max="4" step="1" value="1">
                             </div>
                         </div>
                         <div class="row" style="margin-top:10px;">
@@ -210,6 +320,8 @@
             </div>
 
             <!-- Right Section: Preview + History -->
+
+            <!-- Right Section: Preview + History -->
             <div class="panel-center-container">
                 <div class="panel-right">
 
@@ -217,6 +329,25 @@
                     <div class="image-area" id="image-area">
                         <div class="placeholder">Result will appear here</div>
                         <img id="result-img" src="" style="display:none;">
+
+                        <!-- COMPARISON SLIDER REMOVED -->
+
+                        <!-- TEXT RESULT for I2T -->
+                    </div>
+
+                    <!-- IMAGE TOOLBAR (Restored) -->
+                    <div class="image-toolbar" style="margin-top: 10px;">
+                        <button class="action-btn" onclick="sendToI2I()" title="Send to Image-to-Image">➜ I2I</button>
+                        <button class="action-btn" onclick="sendToI2T()" title="Send to Analysis">➜ Analyze</button>
+                        <div style="width:1px; background:#444; margin:0 5px;"></div>
+                        <!-- HISTORY ACTION BUTTONS (Context sensitive) -->
+                        <button id="btn-hist-top" class="action-btn hidden" onclick="toggleHistory()">🕒
+                            History</button>
+                        <button id="btn-hist-i2i" class="action-btn hidden" onclick="toggleHistory()">🕒 I2I
+                            Hist</button>
+                        <button id="btn-hist-i2t" class="action-btn hidden" onclick="toggleHistory()">🕒 I2T
+                            Hist</button>
+                        <button class="action-btn" onclick="window.open(currentResultPath, '_blank')">🔍 Zoom</button>
                     </div>
 
 
@@ -274,7 +405,7 @@
         </div>
     </div>
 
-    <script src="script.js?v=6"></script>
+    <script src="script.js?v=9"></script>
 </body>
 
 </html>

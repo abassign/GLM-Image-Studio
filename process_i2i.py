@@ -10,7 +10,7 @@ import gc
 import datetime
 import shared_utils
 from PIL import Image
-from diffusers import AutoPipelineForImage2Image, DiffusionPipeline
+from diffusers import AutoPipelineForImage2Image, DiffusionPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionImg2ImgPipeline
 
 MODEL_ID = "zai-org/GLM-Image"
 
@@ -19,8 +19,10 @@ shared_utils.setup_logging()
 
 
 
-def run_i2i(prompt, image_path, width, height, steps, guidance, seed, lora_config=None, top_k=1, temperature=0.6, image_path_2=None, strength=0.75, mix_ratio=0.5):
+def run_i2i(prompt, image_path, width, height, steps, guidance, seed, lora_config=None, top_k=1, temperature=0.6, image_path_2=None, strength=0.75, mix_ratio=0.5, clip_skip=1, model_path=None, scheduler=None):
     print(f"--> [I2I Worker] Starting process PID: {os.getpid()}", flush=True)
+
+    target_model = model_path if model_path else MODEL_ID
 
     if not os.path.exists(image_path):
         print(f"ERROR: Input image not found at: {image_path}", flush=True)
@@ -30,9 +32,68 @@ def run_i2i(prompt, image_path, width, height, steps, guidance, seed, lora_confi
         gc.collect()
         torch.cuda.empty_cache()
 
-        print("--> [I2I Worker] Loading Pipeline...", flush=True)
-        pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True)
+        print(f"--> [I2I Worker] Loading Pipeline from {target_model}...", flush=True)
+        print(f"--> [I2I Worker] Loading Pipeline from {target_model}...", flush=True)
+        
+        # Handle single file vs directory
+        if os.path.isfile(target_model):
+             print("--> [I2I Worker] Detected Single File. Attempting to load as SDXL I2I...", flush=True)
+             try:
+                pipe = StableDiffusionXLImg2ImgPipeline.from_single_file(target_model, torch_dtype=torch.bfloat16)
+             except Exception as sdxl_err:
+                print(f"--> [I2I Worker] SDXL Load failed ({sdxl_err}). Trying SD1.5 I2I...", flush=True)
+                try:
+                    pipe = StableDiffusionImg2ImgPipeline.from_single_file(target_model, torch_dtype=torch.bfloat16)
+                except Exception as sd15_err:
+                     print(f"--> [I2I Worker] Failed to load single file model: {sd15_err}")
+                     raise sd15_err
+        elif os.path.isdir(target_model):
+             # It's a directory. Check if it's a Diffusers repo (has model_index.json or config.json)
+             if os.path.exists(os.path.join(target_model, "model_index.json")) or os.path.exists(os.path.join(target_model, "config.json")):
+                  try:
+                       pipe = AutoPipelineForImage2Image.from_pretrained(target_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
+                  except Exception as auto_err:
+                       print(f"--> [I2I Worker] AutoPipeline failed ({auto_err}). Fallback to standard DiffusionPipeline...", flush=True)
+                       pipe = DiffusionPipeline.from_pretrained(target_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
+             else:
+                 # Directory without index, maybe contains the single file?
+                 # Find first .safetensors in the dir
+                 files = [f for f in os.listdir(target_model) if f.endswith(".safetensors")]
+                 if files:
+                     single_file_path = os.path.join(target_model, files[0])
+                     print(f"--> [I2I Worker] Found single file in directory: {single_file_path}. Loading...", flush=True)
+                     try:
+                        pipe = StableDiffusionXLImg2ImgPipeline.from_single_file(single_file_path, torch_dtype=torch.bfloat16)
+                     except Exception as sdxl_err:
+                        print(f"--> [I2I Worker] SDXL Load failed ({sdxl_err}). Trying SD1.5 I2I...", flush=True)
+                        try:
+                            pipe = StableDiffusionImg2ImgPipeline.from_single_file(single_file_path, torch_dtype=torch.bfloat16)
+                        except Exception as sd15_err:
+                             print(f"--> [I2I Worker] Failed to load single file model: {sd15_err}")
+                             raise sd15_err
+                 else:
+                     # Fallback to default load attempt (remote repo id?)
+                     try:
+                        pipe = AutoPipelineForImage2Image.from_pretrained(target_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
+                     except:
+                        raise FileNotFoundError(f"No model_index.json or .safetensors found in {target_model}")
+        else:
+             # Assume repo ID
+             try:
+                  pipe = AutoPipelineForImage2Image.from_pretrained(target_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
+             except Exception as auto_err:
+                  print(f"--> [I2I Worker] AutoPipeline failed ({auto_err}). Fallback to standard DiffusionPipeline...", flush=True)
+                  pipe = DiffusionPipeline.from_pretrained(target_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
+
+        # Apply Clip Skip if requested (Logging only, relies on params)
+        if clip_skip and int(clip_skip) > 1:
+            print(f"--> [I2I Worker] Requested Clip Skip: {clip_skip} (Passed to pipeline if supported)", flush=True)
+
         shared_utils.load_loras(pipe, lora_config)
+
+        # Apply Scheduler
+        if scheduler:
+            shared_utils.apply_scheduler(pipe, scheduler)
 
 
         print("--> [I2I Worker] Enabling CPU Offload...", flush=True)
@@ -123,7 +184,7 @@ def run_i2i(prompt, image_path, width, height, steps, guidance, seed, lora_confi
             "files": [os.path.basename(save_path)]
         }
 
-        shared_utils.save_generation_log("i2i", inputs_data, params_data, outputs_data, image_path_for_filename=save_path)
+        shared_utils.save_generation_log("i2i", inputs_data, params_data, outputs_data, image_path_for_filename=save_path, model_name="glm-4")
 
         print("--> [I2I Worker] Task Completed.", flush=True)
 
@@ -147,6 +208,9 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--strength", type=float, default=0.75)
     parser.add_argument("--mix_ratio", type=float, default=0.5)
+    parser.add_argument("--clip_skip", type=int, default=1)
+    parser.add_argument("--model_path", type=str, default=None)
+    parser.add_argument("--scheduler", type=str, default=None)
     args = parser.parse_args()
 
-    run_i2i(args.prompt, args.image_path, args.width, args.height, args.steps, args.guidance, args.seed, args.lora_config, args.top_k, args.temperature, args.image_path_2, args.strength, args.mix_ratio)
+    run_i2i(args.prompt, args.image_path, args.width, args.height, args.steps, args.guidance, args.seed, args.lora_config, args.top_k, args.temperature, args.image_path_2, args.strength, args.mix_ratio, args.clip_skip, args.model_path, args.scheduler)

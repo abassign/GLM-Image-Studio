@@ -26,3 +26,13 @@ loras/*
 # Ignora contenuti uploads ma mantieni la cartella
 uploads/*
 !uploads/.gitkeep
+
+# Ignora cartella models mantenendo la struttura
+models/*
+!models/.gitkeep
+
+# Ignora pesi grandi
+*.pth
+*.safetensors
+*.bin
+

@@ -293,9 +293,32 @@ input[type=range] {
     cursor: pointer;
     font-weight: 700;
     font-size: 12px;
-    text-transform: uppercase;
+    font-size: 12px;
     letter-spacing: 0.5px;
     white-space: nowrap;
+}
+
+.btn-circle {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    padding: 0;
+    transition: transform 0.2s;
+}
+
+.btn-circle:hover {
+    transform: scale(1.1);
+    background: var(--accent-hover);
 }
 
 .btn-primary {
@@ -407,34 +430,24 @@ input[type=range] {
 
 .swap-btn {
     align-self: center;
-    background: #2d2d2d !important;
-    /* Grigio scuro, ~20% più chiaro dello sfondo #1e1e1e */
-    border: 2px solid #444;
-    color: #ffffff !important;
-    border-radius: 10px;
-    width: 45px;
-    height: 140px;
+    background: #374151;
+    border: 1px solid #4b5563;
+    color: white;
+    border-radius: 4px;
+    width: 40px;
+    height: 40px;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 25px;
-    /* Distanza tra le frecce, circa 5mm */
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-    flex-shrink: 0;
-    margin: 0 15px;
-    padding: 0;
+    margin: 0 10px;
 }
 
 .swap-btn span {
-    font-size: 28px;
-    font-weight: 900;
-    /* Font bold */
-    line-height: 1;
+    font-size: 18px;
+    font-weight: bold;
     user-select: none;
-    display: block;
 }
 
 .swap-btn:hover {
@@ -795,6 +808,102 @@ input[type=range] {
 .history-panel.collapsed {
     width: 0;
     border: none;
+}
+
+/* COMPARISON SLIDER STYLES */
+.comparison-view {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+}
+
+.comp-img-container {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    line-height: 0;
+    /* Removing spacing */
+}
+
+.comp-img {
+    display: block;
+    max-width: 100%;
+    max-height: 600px;
+    /* Limit height to viewport roughly */
+    object-fit: contain;
+    width: auto;
+    height: auto;
+}
+
+/* The overlay contains the "Before" image */
+.comp-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 50%;
+    /* Initial split */
+    height: 100%;
+    overflow: hidden;
+    border-right: 2px solid white;
+    background: #000;
+    /* Fallback */
+    z-index: 10;
+}
+
+/* Identify images inside overlay to ensure they match size exactly */
+#comp-before {
+    /* Important: We render this image at FULL size but clipped by parent width */
+    max-width: none;
+    /* Let it flow, parent clips it */
+    height: 100%;
+    /* Match container height */
+    width: auto;
+    /* Aspect ratio preserved */
+}
+
+.comp-slider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: transparent;
+    cursor: ew-resize;
+    z-index: 20;
+}
+
+.slider-handle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 30px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    font-size: 14px;
+    pointer-events: none;
+    /* Pass events to slider line */
+}
+
+/* Hiding generic result when comparison is active */
+.image-area.comparing #result-img {
+    display: none !important;
+}
+
+.image-area.comparing .placeholder {
+    display: none !important;
 }
 
 .history-header {
@@ -1158,3 +1267,290 @@ input[type=range] {
 .system-log-drawer .console .log-info {
     color: #4ade80;
 }
+
+/* COMPARISON SLIDER STYLES (Cleaned) */
+.comparison-view {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+}
+
+.comp-img-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* BOTH images must be absolute and full size to overlap perfectly */
+.comp-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* Wrapper for Before Image - Make it a ghost wrapper (full size) */
+.comp-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    /* FORCE FULL WIDTH */
+    height: 100% !important;
+    z-index: 10;
+    pointer-events: none;
+    /* Let clicks pass? No, slider needs events? Slider is separate. */
+    background: transparent;
+    border: none;
+    transform: none;
+    /* remove any centering transforms */
+}
+
+#comp-after {
+    z-index: 1;
+    /* Bottom */
+}
+
+#comp-before {
+    z-index: 2;
+    /* Top */
+    /* Clip Path Managed by JS */
+    clip-path: inset(0 50% 0 0);
+}
+
+.comp-slider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: white;
+    cursor: ew-resize;
+    z-index: 20;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+.slider-handle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 32px;
+    height: 32px;
+    background: white;
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    font-size: 16px;
+    pointer-events: none;
+}
+
+.image-area.comparing #result-img,
+.image-area.comparing .placeholder {
+    display: none !important;
+}
+
+.comp-img-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    /* Ensure no spill */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    line-height: 0;
+}
+
+.comp-img {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    /* FULL FILL */
+    object-fit: contain;
+    width: auto;
+    height: auto;
+}
+
+/* The overlay contains the "Before" image */
+.comp-overlay {
+    position: absolute;
+    top: 50%;
+    /* Center vertically */
+    left: 50%;
+    /* Start centered */
+    transform: translate(-50%, -50%);
+    /* Center trick to match img pos? No, wait. */
+    /* Overlay approach is tricky with object-fit: contain. 
+       If the image is smaller than container, the overlay needs to match the IMAGE size/pos, not the container.
+       BUT, implementing JS to sync positions is complex.
+       Simpler approach: Both images take 100% of container via object-fit: cover? No, user wants pixel accuracy.
+       
+       Standard trick: 
+       Container is flex center.
+       Images are same size.
+       Overlay is absolute top-left of the CONTAINER? 
+       No, overlay acts as a mask.
+       
+       Let's stick to simple "clip-path" or resizing width of a container that holds the second image.
+       
+       Better CSS for responsive comparison: */
+
+    top: 0;
+    left: 0;
+    width: 50%;
+    /* Controlled by JS width % */
+    height: 100%;
+    overflow: hidden;
+    border-right: 2px solid white;
+    background: transparent;
+    z-index: 10;
+
+    /* Crucial: The inner image must be positioned/sized IDENTICALLY to the background image relative to the container. */
+}
+
+/* We need .comp-overlay to be a window into .comp-before. */
+/* If .comp-img is object-fit: contain, it might have empty bars. */
+/* The overlay must cover the prompt. */
+
+/* REVISED STRATEGY: 
+   .comp-img-container -> Relative.
+   .comp-after -> Absolute Top Left, 100% W/H, Object Fit Contain.
+   .comp-overlay -> Absolute Top Left, 100% H, WIDTH VARIABLE (slider), overflow hidden.
+      .comp-before -> Absolute Top Left, 100% W !! (of container), 100% H. Object Fit Contain.
+   
+   If both have same object-fit and size, they align perfectly.
+   The overlay just clips the 'before' image.
+*/
+
+.comp-img {
+    /* For Absolute strategy */
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.comp-overlay {
+    /* Reset from above */
+    transform: none;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 50%;
+    background: #000;
+    /* Background for Before image area? No, transparent or match bg. */
+}
+
+.comp-overlay .comp-img {
+    /* Inner image must maintain full width of PARENT container context to match 'after' image */
+    width: 100vw;
+    /* Trick? No. */
+    width: 100%;
+    /* relative to overlay? No. */
+
+    /* Trick: If overlay is 50%, inner img must be 200% width? No, too hard. */
+    /* Easier: JS sets overlay width. */
+    /* Inner image width should be set to the CONTAINER width. */
+    /* But standard CSS: inside a div of width X, width 100% is X. */
+    /* Solution: Use clip-path on the top image instead of a div wrapper? */
+    /* Yes! clip-path is much easier for alignment. */
+}
+/* --- MODAL --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 600px;
+    max-width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    padding: 15px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.modal-body {
+    padding: 15px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    padding: 15px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.file-list-item {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+    font-family: monospace;
+    font-size: 13px;
+}
+
+.file-list-item:last-child {
+    border-bottom: none;
+}
+
+.file-list-item input {
+    margin-right: 10px;
+}
+
+.file-list-item .size {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+}
+.close-btn:hover { color: var(--text-main); }

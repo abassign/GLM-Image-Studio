@@ -6,9 +6,9 @@ SCRIPT_TO_RUN="server.py"
 
 HF_CACHE_DIR="$HOME/AI/hf_cache"
 OUTPUT_DIR="$(pwd)/outputs"
-LORA_DIR="$(pwd)/loras"
+MODELS_DIR="$(pwd)/models"
 
-mkdir -p "$HF_CACHE_DIR" "$OUTPUT_DIR" "$LORA_DIR"
+mkdir -p "$HF_CACHE_DIR" "$OUTPUT_DIR" "$MODELS_DIR"
 
 RENDER_ARG=""
 if getent group render >/dev/null; then
@@ -19,7 +19,6 @@ fi
 echo "=================================================="
 echo "   GLM-Image STUDIO PRO (FastAPI + JS)"
 echo "   Server running on: http://localhost:7860"
-echo "   LoRA Directory: $LORA_DIR"
 echo "=================================================="
 
 # Added PYTORCH_HIP_ALLOC_CONF for ROCm stability
@@ -36,6 +35,6 @@ docker run --rm -it \
   -v "$HF_CACHE_DIR":/root/.cache/huggingface \
   -v "$OUTPUT_DIR":/app/outputs \
   -v "$(pwd)":/app \
-  -v "$LORA_DIR":/app/loras \
+  -v "$MODELS_DIR":/app/models \
   "$IMAGE_NAME" \
   bash -c "python $SCRIPT_TO_RUN"

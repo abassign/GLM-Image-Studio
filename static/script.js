@@ -29,6 +29,10 @@ const valTopK = document.getElementById('val-topk');
 const sliderTemp = document.getElementById('temp');
 const valTemp = document.getElementById('val-temp');
 
+// Clip Skip
+const sliderClip = document.getElementById('clip-skip');
+const valClip = document.getElementById('val-clip');
+
 // Sliders I2I Specific
 const sliderStrength = document.getElementById('strength');
 const valStrength = document.getElementById('val-strength');
@@ -45,6 +49,7 @@ const btnGenerate = document.getElementById('btn-generate');
 const btnStop = document.getElementById('btn-stop');
 const btnExit = document.getElementById('btn-exit');
 const btnOrig = document.querySelector('.btn-orig'); // Tasto Original Ratio
+const faceEnhanceCheckbox = document.getElementById('face-enhance');
 
 // LoRA
 const loraContainer = document.getElementById('lora-container');
@@ -107,6 +112,38 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sliderStrength) sliderStrength.oninput = () => valStrength.innerText = sliderStrength.value;
     if (sliderMix) sliderMix.oninput = () => valMix.innerText = sliderMix.value;
 
+    // Clip Skip Listener
+    // Clip Skip Listener
+    if (sliderClip && valClip) {
+        sliderClip.oninput = () => valClip.innerText = sliderClip.value;
+    }
+
+    // Upscale specific
+    const sliderNoise = document.getElementById('noise-level');
+    const valNoise = document.getElementById('val-noise');
+
+    // Logarithmic/Power Mapping: 0-100 Slider -> 0-1000 Value
+    // We use a quadratic curve to give fine control at low levels (where it matters most).
+    // Formula: Val = 350 * (Slider/100)^2
+    // Model specific limit: 350
+    const getLogNoise = (v) => Math.round(350 * Math.pow(v / 100, 2));
+
+    if (sliderNoise && valNoise) {
+        sliderNoise.oninput = () => {
+            const realVal = getLogNoise(sliderNoise.value);
+            valNoise.innerText = realVal;
+        };
+    }
+
+    const sliderScale = document.getElementById('scale-factor');
+    const valScale = document.getElementById('val-scale');
+    if (sliderScale && valScale) {
+        sliderScale.oninput = () => {
+            valScale.innerText = sliderScale.value;
+            updateUpscaleResolution();
+        }
+    }
+
     // Imposta default path per LoRA
     if (loraFolderInput) loraFolderInput.value = "/app/loras";
 
@@ -117,9 +154,268 @@ document.addEventListener('DOMContentLoaded', () => {
     addLoraSlot();
     addLoraSlot();
 
+    // Init Comparison Slider
+    initComparisonSlider();
+
     // Imposta stato iniziale UI
     switchTab('t2i', document.querySelector('.nav-btn.active'));
+    initModelSelector();
 });
+
+// --- MODEL MANAGEMENT ---
+// Inputs & Buttons
+const modelSelect = document.getElementById('model-select');
+// Scheduler
+const schedulerSelect = document.getElementById('scheduler-select');
+const btnAddModel = document.getElementById('btn-add-model');
+const btnDeleteModel = document.getElementById('btn-delete-model');
+const modelAddRow = document.getElementById('model-add-row');
+const hfRepoInput = document.getElementById('hf-repo-input');
+const btnGetModel = document.getElementById('btn-get-model');
+
+async function initModelSelector() {
+    try {
+        const res = await fetch('/api/models');
+        const data = await res.json();
+        modelSelect.innerHTML = ""; // Clear existing
+
+        if (data.models && data.models.length > 0) {
+            data.models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.path.startsWith("./") ? "/app/models/" + m.id : m.path;
+                // We construct absolute path because backend needs it or can resolve it.
+                // Actually server.py scan_models resolves relative to that folder.
+                // Let's rely on server accepting absolute path OR we pass the ID.
+                // The current flow uses 'model_path' in command.
+                // scan_models in server.py returns absolute path.
+                // We'll store the absolute path in value if possible, or just the folder path.
+                // Simplest: /app/models/<folder>
+                opt.value = `/app/models/${m.id}`;
+                opt.innerText = m.name || m.id;
+                modelSelect.appendChild(opt);
+            });
+        } else {
+            const opt = document.createElement('option');
+            opt.innerText = "No models found (Add one)";
+            modelSelect.appendChild(opt);
+        }
+    } catch (e) {
+        console.error("Failed to list models", e);
+    }
+}
+
+function toggleAddModel() {
+    modelAddRow.classList.toggle('hidden');
+}
+
+if (btnDeleteModel) {
+    btnDeleteModel.onclick = async () => {
+        const val = modelSelect.value;
+        if (!val) return;
+
+        // val is like "/app/models/subdir/file.safetensors" or "/app/models/folder"
+        // server expects "subdir/file.safetensors" or "folder" as model_id (relative to /app/models)
+        let modelId = val;
+        if (modelId.startsWith('/app/models/')) {
+            modelId = modelId.replace('/app/models/', '');
+        }
+
+        if (!confirm(`⚠️ DANGER ZONE ⚠️\n\nAre you sure you want to PERMANENTLY DELETE:\n\n${modelId}\n\nThis cannot be undone!`)) return;
+
+        try {
+            const res = await fetch('/api/delete_model', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model_id: modelId })
+            });
+            const d = await res.json();
+            if (d.status === 'success') {
+                log(`🗑️ Deleted model: ${modelId}`);
+                initModelSelector(); // refresh list
+                // Optionally reset selection
+            } else {
+                alert("Error deleting model: " + d.error);
+            }
+        } catch (e) {
+            alert("Request failed: " + e);
+        }
+    };
+}
+
+const btnInspectModel = document.getElementById('btn-inspect-model');
+const inspectModal = document.getElementById('model-inspect-modal');
+const inspectList = document.getElementById('model-inspect-list');
+let currentRepoId = "";
+
+function parseRepoId(input) {
+    let repo = input.trim();
+    // Remove protocol and domain
+    repo = repo.replace(/^https?:\/\//, '').replace(/^huggingface\.co\//, '');
+    // Remove /tree/main, /blob/main etc.
+    repo = repo.split('/tree/')[0].split('/blob/')[0];
+
+    // Ensure we take first two parts (User/Repo)
+    // But verify they are not empty
+    const parts = repo.split('/').filter(p => p.length > 0);
+    if (parts.length >= 2) {
+        return `${parts[0]}/${parts[1]}`;
+    }
+    return repo;
+}
+
+async function inspectModel() {
+    // Re-query to ensure we have the correct element (fixing potential stale reference)
+    const inputEl = document.getElementById('hf-repo-input');
+    if (!inputEl) {
+        alert("System Error: Input field 'hf-repo-input' not found in DOM.");
+        return;
+    }
+
+    let raw = inputEl.value;
+    console.log("Inspect Repo:", raw); // Debug
+
+    if (!raw || raw.trim() === "") return alert("Please enter a Hugging Face Repo ID");
+
+    const repo = parseRepoId(raw);
+    currentRepoId = repo;
+
+    inspectList.innerHTML = '<div style="text-align:center; padding:20px;">Fetching file list...</div>';
+    inspectModal.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/inspect_model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repo_id: repo })
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            inspectList.innerHTML = `<div style="color:red; padding:10px;">Error: ${data.error}</div>`;
+            return;
+        }
+
+        inspectList.innerHTML = "";
+
+        // Helper to format bytes
+        const formatBytes = (bytes, decimals = 2) => {
+            if (!+bytes) return '0 B';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        // Handle both old (string[]) and new ({name, size}[]) formats for robustness
+        let validFiles = [];
+        if (data.files.length > 0 && typeof data.files[0] === 'string') {
+            validFiles = data.files.map(f => ({ name: f, size: 0 }));
+        } else {
+            validFiles = data.files;
+        }
+
+        // Filter relevant files (case insensitive)
+        const relevant = validFiles.filter(obj => {
+            const ext = obj.name.split('.').pop().toLowerCase();
+            return ["safetensors", "bin", "json", "yaml", "gguf"].includes(ext);
+        });
+
+        if (relevant.length === 0) {
+            inspectList.innerHTML = '<div style="padding:10px;">No relevant model files found.</div>';
+            return;
+        }
+
+        relevant.forEach(fileObj => {
+            const file = fileObj.name;
+            const sizeStr = fileObj.size > 0 ? formatBytes(fileObj.size) : "";
+
+            const div = document.createElement('div');
+            div.className = "file-list-item";
+
+            const checkbox = document.createElement('input');
+            checkbox.type = "checkbox";
+            checkbox.value = file;
+            // Auto-select likely candidates except GGUF (too many variants usually)
+            if (file.endsWith(".json")) checkbox.checked = true;
+            if (file.includes("fp16") && file.endsWith(".safetensors")) checkbox.checked = true;
+
+            const label = document.createElement('span');
+            label.innerText = file;
+
+            const sizeSpan = document.createElement('span');
+            sizeSpan.className = "size";
+            sizeSpan.style = "float:right; color:#888; font-size:0.8em;";
+            sizeSpan.innerText = sizeStr;
+
+            div.appendChild(checkbox);
+            div.appendChild(label);
+            div.appendChild(sizeSpan);
+            inspectList.appendChild(div);
+        });
+
+    } catch (e) {
+        inspectList.innerHTML = `<div style="color:red;">Network Error: ${e}</div>`;
+    }
+}
+
+function closeInspectModal() {
+    inspectModal.classList.add('hidden');
+}
+
+async function downloadSelectedFiles() {
+    const checkboxes = inspectList.querySelectorAll('input[type="checkbox"]:checked');
+    const selected = Array.from(checkboxes).map(c => c.value);
+
+    // Get Target Subdirectory if specified
+    const subdirInput = document.getElementById('dl-target-subdir');
+    const subdir = subdirInput ? subdirInput.value.trim() : null;
+
+    if (selected.length === 0) {
+        if (!confirm("No files selected. Download ENTIRE repository?")) return;
+        return triggerDownload(currentRepoId, null, subdir);
+    }
+
+    triggerDownload(currentRepoId, selected, subdir);
+    closeInspectModal();
+}
+
+async function triggerDownload(repo, files, subdir = null) {
+    btnGetModel.innerText = "Starting...";
+    btnGetModel.disabled = true;
+
+    try {
+        const payload = { repo_id: repo };
+        if (files) payload.filenames = files;
+        if (subdir) payload.subdirectory = subdir;
+
+        const res = await fetch('/api/download_model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        alert(d.message || d.status);
+    } catch (e) {
+        alert("Error: " + e);
+    } finally {
+        // We don't block UI too long, logging is in system log
+        setTimeout(() => {
+            btnGetModel.innerText = "Get Model";
+            btnGetModel.disabled = false;
+        }, 5000);
+    }
+}
+
+async function downloadModel() {
+    let raw = hfRepoInput.value;
+    if (!raw) return alert("Please enter a Hugging Face Repo ID");
+
+    const repo = parseRepoId(raw);
+    triggerDownload(repo, null);
+}
+
+
 
 // --- HELPER FUNCTIONS ---
 
@@ -205,6 +501,89 @@ function showImage(url) {
     resultImg.style.display = 'block';
 
     // Show Action Buttons
+
+    // COMPARISON LOGIC
+    // If I2I or Upscale, try to enable comparison
+    // Standard behavior: just show image
+    // Comparison feature removed as requested.
+}
+
+// --- COMPARISON SLIDER LOGIC ---
+const compView = document.getElementById('comparison-view');
+const compOverlay = document.getElementById('comp-overlay');
+const compSlider = document.getElementById('comp-slider');
+const compBefore = document.getElementById('comp-before');
+const compAfter = document.getElementById('comp-after');
+const imgAreaEl = document.getElementById('image-area');
+
+function startComparison(beforeUrl, afterUrl) {
+    if (!compView) return;
+
+    // Add cache busters
+    const ts = Date.now();
+    compBefore.src = beforeUrl.startsWith('/app/') ? beforeUrl.substring(4) : beforeUrl;
+    compAfter.src = afterUrl + "?t=" + ts;
+
+    imgAreaEl.classList.add('comparing');
+    compView.classList.remove('hidden');
+
+    // Reset slider to center
+    compBefore.style.clipPath = "inset(0 50% 0 0)";
+    compSlider.style.left = "50%";
+}
+
+function stopComparison() {
+    if (!compView) return;
+    imgAreaEl.classList.remove('comparing');
+    compView.classList.add('hidden');
+}
+
+function initComparisonSlider() {
+    if (!compSlider) return;
+
+    let active = false;
+
+    const startDrag = (e) => {
+        active = true;
+        compSlider.classList.add('active');
+        e.preventDefault();
+    };
+
+    const stopDrag = () => {
+        active = false;
+        compSlider.classList.remove('active');
+    };
+
+    const drag = (e) => {
+        if (!active) return;
+
+        let clientX;
+        if (e.type === 'touchmove') clientX = e.touches[0].clientX;
+        else clientX = e.clientX;
+
+        // Calculate pos relative to container
+        const rect = compView.getBoundingClientRect();
+        let x = clientX - rect.left;
+
+        // Clamp
+        if (x < 0) x = 0;
+        if (x > rect.width) x = rect.width;
+
+        const percent = (x / rect.width) * 100;
+
+        compOverlay.style.width = percent + "%";
+        compSlider.style.left = percent + "%";
+    };
+
+    // Mouse
+    compSlider.addEventListener('mousedown', startDrag);
+    window.addEventListener('mouseup', stopDrag);
+    window.addEventListener('mousemove', drag);
+
+    // Touch
+    compSlider.addEventListener('touchstart', startDrag);
+    window.addEventListener('touchend', stopDrag);
+    window.addEventListener('touchmove', drag);
 }
 
 // --- TAB SWITCHING LOGIC ---
@@ -221,6 +600,9 @@ window.switchTab = function (mode, btn) {
         // Restore new prompt from buffer
         promptBox.value = promptBuffers[mode] || "";
 
+
+
+        // Restore LoRAs (if any)
         // Restore Image from buffer
         const savedImg = imageBuffers[mode];
         if (savedImg) {
@@ -252,6 +634,18 @@ window.switchTab = function (mode, btn) {
         // Reset visualizzazione pannelli
         uploadPanel.classList.add('hidden');
         paramsPanel.classList.add('hidden');
+        // Reset groups visibility
+        const allGroups = paramsPanel.querySelectorAll('.group');
+        allGroups.forEach(g => g.classList.remove('hidden'));
+
+        // Reset rows visibility (Fix for T2I/I2I missing params after Upscale)
+        const allRows = paramsPanel.querySelectorAll('.row');
+        allRows.forEach(r => r.classList.remove('hidden'));
+
+        // Reset LoRA visibility
+        const loraSec = document.querySelector('.lora-section');
+        if (loraSec) loraSec.classList.remove('hidden');
+
         imgArea.classList.add('hidden');
         textResultArea.classList.add('hidden');
         if (i2iParamsPanel) i2iParamsPanel.classList.add('hidden');
@@ -261,10 +655,15 @@ window.switchTab = function (mode, btn) {
         const hI2I = document.getElementById('btn-hist-i2i');
         const hI2T = document.getElementById('btn-hist-i2t');
 
+        const upscalePanel = document.getElementById('upscale-params-panel');
+
         if (hTop) hTop.classList.add('hidden');
         if (hI2I) hI2I.classList.add('hidden');
         if (hI2T) hI2T.classList.add('hidden');
         if (colMix) colMix.classList.add('hidden'); // Reset Mix Slider
+        if (upscalePanel) upscalePanel.classList.add('hidden'); // Reset Upscale Params
+        const restorePanel = document.getElementById('restore-params-panel');
+        if (restorePanel) restorePanel.classList.add('hidden'); // Reset Restore Params
 
         const slot2Container = document.getElementById('slot-2-container');
         const swapContainer = document.getElementById('swap-container');
@@ -336,6 +735,105 @@ window.switchTab = function (mode, btn) {
                 btnOrig.style.opacity = "1";
                 btnOrig.style.cursor = "pointer";
             }
+        } else if (mode === 'upscale') {
+            // SETUP UPSCALE
+            // Note: Upscale uses uploadPanel but hides slot 2
+            uploadPanel.classList.remove('hidden');
+            imgArea.classList.remove('hidden');
+
+            // Show Upscale Params
+            if (upscalePanel) upscalePanel.classList.remove('hidden');
+
+            // Show generic params panel for Steps/Guidance
+            paramsPanel.classList.remove('hidden');
+
+            // But hide Width/Height/Ratios which are irrelevant for upscale (output is fixed 4x)
+            // We can hack this by hiding specific "groups" or children
+            // Let's assume user accepts seeing "Width/Height" even if they don't do anything, OR we hide them via CSS/JS match
+            // A clearer way: Add a class to paramsPanel to hide dimensions?
+            // For now, let's just leave them visible but maybe disabled?
+            // Actually, hiding the specific row is better. 
+            // The row with width/height is the 2nd .group > .row
+            // Let's try to target them loosely or just accept they are there.
+            // Better: Add IDs to the groups in HTML for cleaner toggle. 
+            // Since I can't edit HTML easily right now without checking IDs... I will just let them be visible or hide the first group if it's W/H.
+
+            // Looking at HTML: 
+            // 1st group: Model select
+            // 2nd group: W/H + Ratios
+            // 3rd group: Steps / Guidance / Seed
+
+            // I will hide the W/H group and Model group.
+            const groups = paramsPanel.querySelectorAll('.group');
+            if (groups.length >= 3) {
+                groups[0].classList.add('hidden'); // Model
+                groups[1].classList.add('hidden'); // Dims
+                groups[2].classList.remove('hidden'); // Steps/Guidance
+            }
+
+            // BOOST GUIDANCE for Upscale (needs >4.0 to listen to prompts like "sharp focus")
+            sliderCfg.value = 7.0;
+            valCfg.innerText = "7.0";
+
+            btnGenerate.innerText = "✨ UPSCALE IMAGE";
+            promptBox.placeholder = "Optional: Describe texture/details to add (e.g. 'high resolution, realistic')";
+
+            // Hide TopK and Temp (Row 2 of Group 3)
+            // Group 3 has 3 Rows: 1 (Steps/Cfg), 2 (TopK/Temp), 3 (Seed)
+            const g3 = groups[2];
+            const g3rows = g3.querySelectorAll('.row');
+            if (g3rows.length >= 2) {
+                g3rows[1].classList.add('hidden'); // TopK, Temp
+            }
+
+            // Hide LoRA Section
+            const loraSec = document.querySelector('.lora-section');
+            if (loraSec) loraSec.classList.add('hidden');
+
+            // Show only slot 1
+            if (slot2Container) slot2Container.classList.add('hidden');
+            if (swapContainer) swapContainer.classList.add('hidden');
+        } else if (mode === 'restore') {
+            // SETUP RESTORE
+            uploadPanel.classList.remove('hidden');
+            imgArea.classList.remove('hidden');
+            paramsPanel.classList.remove('hidden'); // Show generic params panel
+
+            // Hide Width/Height/Ratios and Model select
+            const groups = paramsPanel.querySelectorAll('.group');
+            if (groups.length >= 3) {
+                groups[0].classList.add('hidden'); // Model
+                groups[1].classList.add('hidden'); // Dims
+                groups[2].classList.remove('hidden'); // Steps/Guidance
+            }
+
+            // Hide TopK and Temp (Row 2 of Group 3)
+            const g3 = groups[2];
+            const g3rows = g3.querySelectorAll('.row');
+            if (g3rows.length >= 2) {
+                g3rows[1].classList.add('hidden'); // TopK, Temp
+            }
+
+            // Hide LoRA Section
+            const loraSec = document.querySelector('.lora-section');
+            if (loraSec) loraSec.classList.add('hidden');
+
+            // Show only slot 1
+            if (slot2Container) slot2Container.classList.add('hidden');
+            if (swapContainer) swapContainer.classList.add('hidden');
+
+            // Setup Restore Panel
+            const restorePanel = document.getElementById('restore-params-panel');
+            if (restorePanel) restorePanel.classList.remove('hidden');
+
+            btnGenerate.innerText = "✨ RESTORE IMAGE";
+            promptBox.placeholder = "Optional: Describe details to restore (e.g. 'face, hands')";
+
+            // Restore mode typically doesn't need btnOrig to be active
+            if (btnOrig) {
+                btnOrig.style.opacity = "0.3";
+                btnOrig.style.cursor = "not-allowed";
+            }
         }
 
         // Trigger update to sync dynamic elements (like I2I sliders visibility)
@@ -345,6 +843,10 @@ window.switchTab = function (mode, btn) {
         if (typeof refreshHistoryView === 'function') {
             currentPage = 0;
             refreshHistoryView();
+            if (btnOrig) {
+                btnOrig.style.opacity = "1";
+                btnOrig.style.cursor = "pointer";
+            }
         }
         // Aggiorna visibilità parametri per I2T
         if (typeof updateParamVisibility === 'function') updateParamVisibility();
@@ -459,8 +961,13 @@ window.setOriginalRatio = function () {
 // --- LORA LOGIC ---
 
 async function scanLoras() {
-    // FIXED: Use correct default path
-    const folderPath = loraFolderInput ? loraFolderInput.value.trim() : "/app/loras";
+    // Determine path based on Mode
+    let folderPath = "/app/models/stable-diffusion/loras";
+    if (currentMode === 'z_t2i' || currentMode === 'z_i2i') {
+        folderPath = "/app/models/z-image/loras";
+    }
+    // Still respect input if user manually changed it (optional)
+    // const folderPath = loraFolderInput ? loraFolderInput.value.trim() : "/app/loras";
 
     try {
         log(`Scanning LoRAs in: ${folderPath}...`);
@@ -564,8 +1071,12 @@ function updatePreviews() {
         // MODE VISIBILITY
         // In I2I and I2T we want both slots enabled.
         // T2I hides the entire uploadPanel, so we don't need detailed logic here.
-        if (currentMode === 't2i') {
-            // Just in case
+        if (currentMode === 't2i' || currentMode === 'upscale') {
+            // Just in case (Upscale uses uploadPanel but hides slot 2)
+            if (currentMode === 'upscale') {
+                slot2Container.classList.add('hidden');
+                swapContainer.classList.add('hidden');
+            }
         } else {
             slot2Container.classList.remove('hidden');
             swapContainer.classList.remove('hidden');
@@ -586,9 +1097,28 @@ function updatePreviews() {
         }
 
         if (typeof validateInputs === 'function') validateInputs();
+
+        // Trigger Upscale Resolution Calc if in Upscale mode
+        if (currentMode === 'upscale') updateUpscaleResolution();
+
     } catch (e) {
         console.error("Error in updatePreviews:", e);
         if (typeof log === 'function') log("UI Error (Previews): " + e.message, true);
+    }
+}
+
+window.updateUpscaleResolution = function () {
+    const previewEl = document.getElementById('upscale-res-preview');
+    const scaleEl = document.getElementById('scale-factor');
+    if (!previewEl || !scaleEl) return;
+
+    if (uploadedImageDims.w > 0 && uploadedImageDims.h > 0) {
+        const scale = parseFloat(scaleEl.value);
+        const newW = Math.round(uploadedImageDims.w * scale);
+        const newH = Math.round(uploadedImageDims.h * scale);
+        previewEl.innerText = `${uploadedImageDims.w}x${uploadedImageDims.h} ➜ ${newW}x${newH}`;
+    } else {
+        previewEl.innerText = "Load image to see resolution";
     }
 }
 
@@ -732,9 +1262,11 @@ btnGenerate.onclick = async () => {
     if (currentMode === 'i2t') {
         handleI2T();
     } else {
-        handleGeneration(); // T2I e I2I condividono la logica
+        handleGeneration(); // T2I, I2I, Upscale share logic
     }
 };
+
+
 
 // Parsing output Thinking for I2T
 function parseThinking(fullText) {
@@ -850,8 +1382,16 @@ async function handleGeneration() {
         }
     });
 
+    const modelSel = document.getElementById('model-select');
+    let useMode = currentMode;
+    // IF model is Z-Image, switch to corresponding z-mode
+    if (modelSel && modelSel.value === 'z-image') {
+        if (currentMode === 't2i') useMode = 'z_t2i';
+        else if (currentMode === 'i2i') useMode = 'z_i2i';
+    }
+
     const payload = {
-        mode: currentMode,
+        mode: useMode,
         init_image: uploadedPathInput.value,
         init_image_2: uploadedPathInput2.value ? uploadedPathInput2.value : null, // SECOND IMAGE
         prompt: promptBox.value,
@@ -865,8 +1405,23 @@ async function handleGeneration() {
         top_k: parseFloat(sliderTopK.value), // Unified
         temperature: parseFloat(sliderTemp.value), // Unified
         strength: sliderStrength ? parseFloat(sliderStrength.value) : 0.75,
-        mix_ratio: sliderMix ? parseFloat(sliderMix.value) : 0.5
+        mix_ratio: sliderMix ? parseFloat(sliderMix.value) : 0.5,
+        face_enhance: faceEnhanceCheckbox ? faceEnhanceCheckbox.checked : false,
+        model_path: modelSelect.value, // Added for Dynamic Model
+        clip_skip: (sliderClip && sliderClip.value) ? parseInt(sliderClip.value) : 1,
+        scheduler: (schedulerSelect) ? schedulerSelect.value : "euler_a"
     };
+
+    // --- UPSCALE LOGIC INJECTION ---
+    const noiseEl = document.getElementById('noise-level');
+    if (noiseEl) {
+        const raw = parseInt(noiseEl.value);
+        payload.noise_level = Math.round(350 * Math.pow(raw / 100, 2));
+        console.log(`[DEBUG] Noise Slider: ${raw} -> Payload Noise: ${payload.noise_level}`);
+    }
+    const scaleEl = document.getElementById('scale-factor');
+    if (scaleEl) payload.scale = parseFloat(scaleEl.value);
+    // -------------------------------
 
     try {
         const response = await fetch('/api/generate', {
@@ -889,6 +1444,14 @@ async function handleGeneration() {
                         statusText.innerText = content.substring(4);
                     } else if (content.startsWith('IMG|')) {
                         showImage(content.substring(4));
+                    } else if (content.startsWith('REF|')) {
+                        currentRefPath = content.substring(4);
+                        console.log("Reference Image Received:", currentRefPath);
+                        // HOT SWAP: If we are already showing the result, update the comparison now!
+                        if (currentMode === 'upscale' && currentResultPath) {
+                            startComparison(currentRefPath, currentResultPath);
+                            log("Comparison updated with precision reference.");
+                        }
                     } else if (content.startsWith('DONE|')) {
                         stopTimer();
                         log(content.substring(5), false, true);
@@ -1004,6 +1567,19 @@ function restoreHistoryState(item) {
 
     // Restore Prompt
     if (p.prompt) promptBox.value = p.prompt;
+
+    // Restore Model (if present in meta)
+    if (item.meta && item.meta.model) {
+        const modelSel = document.getElementById('model-select');
+        if (modelSelect) {
+            const m = item.meta.model.toLowerCase();
+            if (m.includes('z-image-turbo') || m.includes('z-image')) {
+                modelSelect.value = 'z-image';
+            } else if (m.includes('glm')) {
+                modelSelect.value = 'glm';
+            }
+        }
+    }
 
     // Restore Sliders
     if (p.width) { sliderW.value = p.width; valW.innerText = p.width; }
@@ -1300,15 +1876,17 @@ function renderHistoryRobust(items) {
             };
             moveRow.appendChild(btn1);
 
-            const btn2 = document.createElement('button');
-            btn2.innerText = "➜ 2";
-            btn2.title = "Load into Input Image 2";
-            btn2.style.cssText = "background: #242; border: none; border-radius: 3px; cursor: pointer; color: white; padding: 2px 6px; font-size: 10px; font-weight:bold;";
-            btn2.onclick = (e) => {
-                e.stopPropagation();
-                loadToInput(item.image, 2);
-            };
-            moveRow.appendChild(btn2);
+            if (currentMode !== 'upscale') {
+                const btn2 = document.createElement('button');
+                btn2.innerText = "➜ 2";
+                btn2.title = "Load into Input Image 2";
+                btn2.style.cssText = "background: #242; border: none; border-radius: 3px; cursor: pointer; color: white; padding: 2px 6px; font-size: 10px; font-weight:bold;";
+                btn2.onclick = (e) => {
+                    e.stopPropagation();
+                    loadToInput(item.image, 2);
+                };
+                moveRow.appendChild(btn2);
+            }
 
             // Prepend moveRow
             if (actionsDiv.firstChild) {
@@ -1470,8 +2048,8 @@ function validateInputs() {
     if (currentMode === 't2i') {
         // T2I requires prompt
         isValid = promptBox.value.trim().length > 0;
-    } else if (currentMode === 'i2i' || currentMode === 'i2t') {
-        // I2I/I2T requires at least one image
+    } else if (currentMode === 'i2i' || currentMode === 'i2t' || currentMode === 'upscale' || currentMode === 'restore') {
+        // I2I/I2T/Upscale/Restore requires at least one image
         isValid = !!uploadedPathInput.value;
     }
 
