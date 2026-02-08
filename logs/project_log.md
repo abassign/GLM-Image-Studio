@@ -1,5 +1,38 @@
 # Project Log - GLM-Image Studio
 
+## 2026-02-06
+- **Status**: Implemented High-Performance Z-Image Integration via `stable-diffusion.cpp`.
+- **Focus**: Transition from heavy Python `diffusers` to efficient C++ GGUF backend.
+- **Architecture Synchronization**:
+    - **Problem**: Encountered "Shape Mismatch" errors when using GGUF LLMs (specifically Qwen 0.5B) with the `sd-cpp` backend.
+    - **Analysis**: The `sd-cpp` implementation of the `QWEN3` architecture (Lumina2/Z-Image) has hardcoded assumptions for 32 heads and 128 head_dim. The 0.5B model's non-standard layout (14 heads) caused internal assertion failures.
+    - **Solution**: Confirmed that the **Qwen 4B Instruct** model perfectly aligns with these hardcoded requirements. Updated the automated model selection logic to prioritize the 4B variant.
+- **Backend Optimization**:
+    - **Standalone Worker Implementation**: Refactored `shared_utils.py` to use **lazy imports** for `diffusers`. This allows the `sd-cpp` worker scripts to utilize project logging and metadata utilities without the 10+ second overhead (and potential library conflicts) of loading PyTorch/Diffusers inside the sub-process.
+    - **Worker Refinement**: Updated `process_t2i_cpp.py` to support Z-Image specialized flags and automated LLM pathing.
+- **UI/UX Polish**:
+    - **State Control**: Modified `script.js` to dynamically **hide the "CPP Generate" button** during active generations. This prevents concurrent execution and provides clear visual feedback on the system state.
+    - **Aesthetic Alignment**: Standardized button dimensions and typography in `index.html`. Adjusted `padding`, `font-size`, and `height` of the CPP Generate button to be pixel-perfect with the TORCH Generate button.
+- **Verification**:
+    - Successfully verified the full pipeline (`process_t2i_cpp.py` -> `sd` binary -> VAE decode) inside the `glm_runner` Docker container.
+    - Measured performance: ~64.8s for a 20-step 1024x1024 generation using Q8_0 quantization.
+- **Technical Appendix (For Future Reference)**:
+    - **Build Command**:
+        ```bash
+        mkdir build && cd build
+        cmake .. -DSD_HIPBLAS=ON -DAMDGPU_TARGETS=gfx1100 -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+        ```
+    - **Binary Location**: `/usr/local/bin/sd` (mapped from `bin/sd-cli`)
+    - **Key Scripts**:
+        - `process_t2i_cpp.py`: Main worker for CPP generation.
+        - `build_sdcpp.sh`: Automated build script.
+    - **Required Models**:
+        - Diffusion: `grok-1-z-image-turbo-q4_k.gguf` (or similar)
+        - VAE: `z-image-vae.safetensors`
+        - LLM: `Qwen2.5-4B-Instruct-Q4_K_M.gguf` (MUST be >2B params)
+
+
 ## 2026-01-27
 - **Status**: Resumed work. User confirmed Z-Image Turbo tests are positive.
 - **Focus**: Shifting to "Upscale" feature refinement.
@@ -192,4 +225,16 @@
 - **Findings**:
     - **Codebase State**: Corresponds to Feb 1st snapshot (Modular GGUF Loading).
     - **Missing Features**: The "Cache-DiT" integration (discussed in Feb 4th session) is **NOT** present in the file system.
-    - **Conclusion**: The environment is stable but rolled back or pre-dated relative to the Cache-DiT experiments.
+
+## 2026-02-08
+- **Status**: Pre-Release Cleanup & Documentation.
+- **Action**:
+    - **Repository Hygiene**:
+        - Removed temporary debugging files (`help_output.txt`, `test_dl_public/`, `test_dl_token/`).
+        - Updated `.gitignore` to exclude local utility scripts (`build_sdcpp.sh`, `check_html.py`, `debug_models_scan.py`) from version control.
+    - **Documentation**:
+        - Updated **README.md** to highlight the **High-Performance C++ Backend**.
+        - Documented the **3x-10x speed advantage** of `sd-cpp` over Python pipelines on ROCm.
+        - Clarified availability (T2I & I2I only) and usage (Blue "⚡ CPP Generate" button).
+    - **Fixes**:
+        - Resolved persistent `git index.lock` issues preventing commits.
