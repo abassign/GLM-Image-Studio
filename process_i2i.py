@@ -210,7 +210,7 @@ if __name__ == "__main__":
     parser.add_argument("--mix_ratio", type=float, default=0.5)
     parser.add_argument("--clip_skip", type=int, default=1)
     parser.add_argument("--model_path", type=str, default=None)
-    parser.add_argument("--scheduler", type=str, default=None)
+    parser.add_argument("--scheduler", type=str, default="euler")
     args = parser.parse_args()
 
     run_i2i(args.prompt, args.image_path, args.width, args.height, args.steps, args.guidance, args.seed, args.lora_config, args.top_k, args.temperature, args.image_path_2, args.strength, args.mix_ratio, args.clip_skip, args.model_path, args.scheduler)

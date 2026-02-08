@@ -1,27 +1,24 @@
 import os
 import json
 import logging
-import diffusers
-from diffusers import (
-    EulerDiscreteScheduler,
-    EulerAncestralDiscreteScheduler,
-    DPMSolverMultistepScheduler,
-    KDPM2DiscreteScheduler,
-    DDIMScheduler,
-    PNDMScheduler,
-    LMSDiscreteScheduler,
-    FlowMatchEulerDiscreteScheduler
-)
+# diffusers imports moved inside functions to allow use of shared_utils without heavy dependencies
+
 
 
 # Common Paths
-OUTPUT_DIR = "/app/outputs"
-LORA_DIR = "/app/loras"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+LORA_DIR = os.path.join(BASE_DIR, "loras")
 
 def setup_logging():
     """Configures logging to suppress verbose library warnings."""
     logging.getLogger("transformers").setLevel(logging.ERROR)
-    diffusers.logging.set_verbosity_error()
+    try:
+        import diffusers
+        diffusers.logging.set_verbosity_error()
+    except ImportError:
+        pass
+
 
 def save_json(full_path, data, prefix="System"):
     """
@@ -115,7 +112,7 @@ def load_loras(pipe, config_path):
     except Exception as e:
         print(f"--> [LoRA] ❌ Error: {e}", flush=True)
 
-def apply_scheduler(pipe, scheduler_name="euler_a"):
+def apply_scheduler(pipe, scheduler_name="euler"):
     """
     Switches the scheduler of the pipeline.
     Common Schedulers for SDXL/Pony:
@@ -127,10 +124,19 @@ def apply_scheduler(pipe, scheduler_name="euler_a"):
     """
     if not scheduler_name: return
 
-    s_name = scheduler_name.lower().strip()
-    config = pipe.scheduler.config
-
     try:
+        from diffusers import (
+            EulerDiscreteScheduler,
+            EulerAncestralDiscreteScheduler,
+            DPMSolverMultistepScheduler,
+            DDIMScheduler,
+            LMSDiscreteScheduler,
+            FlowMatchEulerDiscreteScheduler
+        )
+        
+        s_name = scheduler_name.lower().strip()
+        config = pipe.scheduler.config
+
         # Check for SD3/Z-Image specific config keys that must be preserved
         # config is a FrozenDict, access via .get is safer than hasattr for keys
         extra_args = {}

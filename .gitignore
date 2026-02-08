@@ -28,11 +28,23 @@ uploads/*
 !uploads/.gitkeep
 
 # Ignora cartella models mantenendo la struttura
+# Ignora cartella models mantenendo la struttura
 models/*
 !models/.gitkeep
+# !models/**/
+# !models/**/*.json
+# !models/**/*.md
+# !models/**/*.yaml
+
+
 
 # Ignora pesi grandi
 *.pth
 *.safetensors
 *.bin
 
+
+# Local scripts
+build_sdcpp.sh
+check_html.py
+debug_models_scan.py

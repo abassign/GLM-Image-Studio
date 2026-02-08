@@ -46,6 +46,7 @@ const promptBox = document.getElementById('prompt');
 const seedInput = document.getElementById('seed');
 const randomizeCheckbox = document.getElementById('randomize');
 const btnGenerate = document.getElementById('btn-generate');
+const btnGenerateCpp = document.getElementById('btn-generate-cpp');
 const btnStop = document.getElementById('btn-stop');
 const btnExit = document.getElementById('btn-exit');
 const btnOrig = document.querySelector('.btn-orig'); // Tasto Original Ratio
@@ -180,27 +181,106 @@ async function initModelSelector() {
         modelSelect.innerHTML = ""; // Clear existing
 
         if (data.models && data.models.length > 0) {
+            // Group models by folder
+            const groups = {};
+            const rootModels = [];
+
             data.models.forEach(m => {
+                const parts = m.id.split('/');
+                if (parts.length > 1) {
+                    const groupName = parts[0]; // Top-level folder
+                    if (!groups[groupName]) groups[groupName] = [];
+                    groups[groupName].push(m);
+                } else {
+                    rootModels.push(m);
+                }
+            });
+
+            // Add Root Models first
+            rootModels.forEach(m => {
                 const opt = document.createElement('option');
-                opt.value = m.path.startsWith("./") ? "/app/models/" + m.id : m.path;
-                // We construct absolute path because backend needs it or can resolve it.
-                // Actually server.py scan_models resolves relative to that folder.
-                // Let's rely on server accepting absolute path OR we pass the ID.
-                // The current flow uses 'model_path' in command.
-                // scan_models in server.py returns absolute path.
-                // We'll store the absolute path in value if possible, or just the folder path.
-                // Simplest: /app/models/<folder>
                 opt.value = `/app/models/${m.id}`;
                 opt.innerText = m.name || m.id;
                 modelSelect.appendChild(opt);
             });
+
+            // Add Groups
+            Object.keys(groups).sort().forEach(groupName => {
+                const group = document.createElement('optgroup');
+                group.label = groupName;
+                groups[groupName].forEach(m => {
+                    const opt = document.createElement('option');
+                    // Ensure value matches what server expects (full path or relative ID)
+                    opt.value = `/app/models/${m.id}`;
+                    // Display only filename inside group
+                    opt.innerText = m.name.replace(groupName + '/', '');
+                    group.appendChild(opt);
+                });
+                modelSelect.appendChild(group);
+            });
+
         } else {
             const opt = document.createElement('option');
             opt.innerText = "No models found (Add one)";
             modelSelect.appendChild(opt);
         }
+
+        // Trigger check on load
+        setTimeout(() => {
+            checkModelCapabilities(modelSelect.value);
+            scanLoras();
+        }, 500);
+
     } catch (e) {
         console.error("Failed to list models", e);
+    }
+}
+
+// Ensure we listen for changes
+// Ensure we listen for changes
+modelSelect.onchange = () => {
+    checkModelCapabilities(modelSelect.value);
+    scanLoras(); // Trigger scan when model changes
+};
+
+const llmSelect = document.getElementById('llm-select');
+const llmSelectContainer = document.getElementById('llm-select-container');
+
+async function checkModelCapabilities(modelPath) {
+    // Only relevant for Z-Image models currently
+    const isZImage = modelPath.includes("Z-Image") || modelPath.includes("z-image") || modelPath.includes("glm");
+
+    if (!isZImage) {
+        llmSelectContainer.classList.add('hidden');
+        return;
+    }
+
+    // It is Z-Image, fetch available encoders
+    try {
+        const res = await fetch('/api/text_encoders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_path: modelPath })
+        });
+        const data = await res.json();
+
+        // Populate
+        llmSelect.innerHTML = '<option value="">Auto-Detect (Recommended)</option>';
+        if (data.encoders && data.encoders.length > 0) {
+            data.encoders.forEach(enc => {
+                const opt = document.createElement('option');
+                opt.value = enc.path;
+                opt.innerText = `${enc.name} (${enc.source})`;
+                llmSelect.appendChild(opt);
+            });
+            llmSelectContainer.classList.remove('hidden');
+        } else {
+            // No encoders found, hide or show warning
+            llmSelectContainer.classList.add('hidden');
+        }
+
+    } catch (e) {
+        console.error("Failed to fetch encoders", e);
     }
 }
 
@@ -249,6 +329,10 @@ let currentRepoId = "";
 
 function parseRepoId(input) {
     let repo = input.trim();
+
+    // If it's a URL (Civitai), return as is
+    if (repo.startsWith("http")) return repo;
+
     // Remove protocol and domain
     repo = repo.replace(/^https?:\/\//, '').replace(/^huggingface\.co\//, '');
     // Remove /tree/main, /blob/main etc.
@@ -278,6 +362,11 @@ async function inspectModel() {
 
     const repo = parseRepoId(raw);
     currentRepoId = repo;
+
+    if (repo.startsWith("http")) {
+        alert("Inspection is only available for Hugging Face repositories. For Civitai, use 'Get Model' directly.");
+        return;
+    }
 
     inspectList.innerHTML = '<div style="text-align:center; padding:20px;">Fetching file list...</div>';
     inspectModal.classList.remove('hidden');
@@ -389,6 +478,11 @@ async function triggerDownload(repo, files, subdir = null) {
         if (files) payload.filenames = files;
         if (subdir) payload.subdirectory = subdir;
 
+        const tokenInput = document.getElementById('api-token-input');
+        if (tokenInput && tokenInput.value.trim() !== "") {
+            payload.token = tokenInput.value.trim();
+        }
+
         const res = await fetch('/api/download_model', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -409,7 +503,7 @@ async function triggerDownload(repo, files, subdir = null) {
 
 async function downloadModel() {
     let raw = hfRepoInput.value;
-    if (!raw) return alert("Please enter a Hugging Face Repo ID");
+    if (!raw) return alert("Please enter a Hugging Face Repo ID or Civitai URL");
 
     const repo = parseRepoId(raw);
     triggerDownload(repo, null);
@@ -961,16 +1055,31 @@ window.setOriginalRatio = function () {
 // --- LORA LOGIC ---
 
 async function scanLoras() {
-    // Determine path based on Mode
-    let folderPath = "/app/models/stable-diffusion/loras";
-    if (currentMode === 'z_t2i' || currentMode === 'z_i2i') {
-        folderPath = "/app/models/z-image/loras";
+    // Determine path based on Selected Model
+    // We assume the model selector has the full path in its value (e.g. /app/models/z-image/z-image.gguf)
+    const modelPath = modelSelect ? modelSelect.value : "";
+    let folderPath = "/app/models/stable-diffusion/loras"; // Default fallback
+
+    if (modelPath) {
+        // If model path is a file, get dirname
+        if (modelPath.includes('.')) {
+            folderPath = modelPath.substring(0, modelPath.lastIndexOf('/')) + "/loras";
+        } else {
+            // If it's a folder (diffusers), just append
+            folderPath = modelPath + "/loras";
+        }
     }
-    // Still respect input if user manually changed it (optional)
-    // const folderPath = loraFolderInput ? loraFolderInput.value.trim() : "/app/loras";
+
+    // Log for debugging
+    console.log("Scanning LoRAs at:", folderPath);
+
+    // FIX: Update the UI Input so the user sees the real path AND generation logic picks it up
+    if (typeof loraFolderInput !== 'undefined' && loraFolderInput) {
+        loraFolderInput.value = folderPath;
+    }
 
     try {
-        log(`Scanning LoRAs in: ${folderPath}...`);
+        log(`Scanning LoRAs for model...`);
         const res = await fetch('/api/scan_loras', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -984,7 +1093,8 @@ async function scanLoras() {
             document.querySelectorAll('.lora-select').forEach(sel => populateSelect(sel, sel.value));
             log(`✅ Found ${loraFiles.length} LoRAs.`);
         } else {
-            log("⚠️ No LoRAs found in folder.", true);
+            // fail silently or just log info
+            // log("⚠️ No LoRAs found for this model.", true); // Optional: verbose
             loraFiles = [];
             document.querySelectorAll('.lora-select').forEach(sel => populateSelect(sel, ""));
         }
@@ -1230,6 +1340,9 @@ function setGenerationState(processing) {
         btnGenerate.classList.add("btn-stop-active");
         btnGenerate.disabled = false; // Always enabled to allow stop
         statusText.innerText = "Processing...";
+
+        // Hide CPP Generate button during processing
+        if (btnGenerateCpp) btnGenerateCpp.classList.add('hidden');
     } else {
         // IDLE STATE (Revert)
         // Check mode to restore correct text
@@ -1240,6 +1353,9 @@ function setGenerationState(processing) {
         btnGenerate.classList.remove("btn-stop-active");
         btnGenerate.title = "";
         btnGenerate.disabled = false;
+
+        // Show CPP Generate button again
+        if (btnGenerateCpp) btnGenerateCpp.classList.remove('hidden');
 
         // Re-validate to ensure disable if empty inputs
         validateInputs();
@@ -1363,7 +1479,16 @@ async function handleI2T() {
     }
 }
 
-async function handleGeneration() {
+async function stopGeneration() {
+    try {
+        await fetch('/api/stop', { method: 'POST' });
+        log("Stop signal sent...", true);
+    } catch (e) {
+        log("Error sending stop signal: " + e, true);
+    }
+}
+
+async function handleGeneration(backend = "std") {
     setGenerationState(true); // SET STOP MODE
     consoleDiv.innerHTML = ''; // Clear Log
     startTimer();
@@ -1384,10 +1509,17 @@ async function handleGeneration() {
 
     const modelSel = document.getElementById('model-select');
     let useMode = currentMode;
-    // IF model is Z-Image, switch to corresponding z-mode
-    if (modelSel && modelSel.value === 'z-image') {
-        if (currentMode === 't2i') useMode = 'z_t2i';
-        else if (currentMode === 'i2i') useMode = 'z_i2i';
+
+    // BACKEND SELECTION
+    if (backend === "cpp" && currentMode === "t2i") {
+        useMode = "t2i_cpp";
+    }
+
+    // IF model is GGUF (or CPP based), switch to corresponding z-mode
+    // Fixed: Only force CPP mode if it's actually a GGUF file or explicitly requested
+    if (modelSel && modelSel.value.endsWith('.gguf')) {
+        if (currentMode === 't2i') useMode = 't2i_cpp';
+        else if (currentMode === 'i2i') useMode = 'i2i_cpp';
     }
 
     const payload = {
@@ -1409,7 +1541,9 @@ async function handleGeneration() {
         face_enhance: faceEnhanceCheckbox ? faceEnhanceCheckbox.checked : false,
         model_path: modelSelect.value, // Added for Dynamic Model
         clip_skip: (sliderClip && sliderClip.value) ? parseInt(sliderClip.value) : 1,
-        scheduler: (schedulerSelect) ? schedulerSelect.value : "euler_a"
+        scheduler: (schedulerSelect) ? schedulerSelect.value : "euler_a",
+        llm_path: (llmSelect && llmSelect.value) ? llmSelect.value : null, // Added manual LLM Text Encoder
+        save_log: document.getElementById('save-log-checkbox') ? document.getElementById('save-log-checkbox').checked : false
     };
 
     // --- UPSCALE LOGIC INJECTION ---
@@ -1855,6 +1989,23 @@ function renderHistoryRobust(items) {
                 deleteHistoryItem(item.filename);
             };
             delRow.appendChild(btnDel);
+
+            // JSON BUTTON (Only for 128px)
+            if (historyIconSize === 128) {
+                const btnJson = document.createElement('button');
+                btnJson.innerText = "JSON";
+                btnJson.title = "View Metadata";
+                btnJson.style.cssText = "background: #335; border: none; border-radius: 3px; cursor: pointer; color: white; padding: 2px 5px; font-size: 10px; line-height:1; flex:1;";
+                btnJson.onclick = (e) => {
+                    e.stopPropagation();
+                    viewJson(item);
+                };
+                // Insert before delete
+                delRow.insertBefore(btnJson, btnDel);
+                // Add some spacing to delete button
+                btnDel.style.marginLeft = "3px";
+            }
+
             actionsDiv.appendChild(delRow);
 
             div.onclick = () => restoreHistoryState(item);
@@ -1958,6 +2109,25 @@ function deleteHistoryItem(filename) {
         .catch(e => console.error(e));
 }
 
+function viewJson(item) {
+    const modal = document.getElementById('json-view-modal');
+    const textarea = document.getElementById('json-output');
+    if (!modal || !textarea) return;
+
+    // Format JSON nicely with 2 spaces indentation
+    const jsonStr = JSON.stringify(item, null, 2);
+    textarea.value = jsonStr;
+    // Scroll to top
+    textarea.scrollTop = 0;
+
+    modal.classList.remove('hidden');
+}
+
+function closeJsonModal() {
+    const modal = document.getElementById('json-view-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
 function loadToInput(webPath, slot) {
     // webPath is like "/outputs/foo.png"
     // Backend expects absolute path: "/app/outputs/foo.png"
@@ -2058,11 +2228,23 @@ function validateInputs() {
         btnGenerate.style.opacity = "1";
         btnGenerate.style.cursor = "pointer";
         btnGenerate.title = "";
+
+        if (btnGenerateCpp) {
+            btnGenerateCpp.disabled = false;
+            btnGenerateCpp.style.opacity = "1";
+            btnGenerateCpp.style.cursor = "pointer";
+        }
     } else {
         btnGenerate.disabled = true;
         btnGenerate.style.opacity = "0.5";
         btnGenerate.style.cursor = "not-allowed";
         btnGenerate.title = (currentMode === 't2i') ? "Please enter a prompt" : "Please upload an image";
+
+        if (btnGenerateCpp) {
+            btnGenerateCpp.disabled = true;
+            btnGenerateCpp.style.opacity = "0.5";
+            btnGenerateCpp.style.cursor = "not-allowed";
+        }
     }
 }
 
@@ -2072,3 +2254,7 @@ promptBox.addEventListener('input', validateInputs);
 // Verify on load
 // setTimeout to ensure elements are loaded
 setTimeout(validateInputs, 500);
+
+if (btnGenerateCpp) {
+    btnGenerateCpp.onclick = () => handleGeneration("cpp");
+}

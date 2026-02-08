@@ -20,6 +20,7 @@ shared_utils.setup_logging()
 
 def run_zimage(prompt, width, height, steps, guidance, seed, lora_config=None, top_k=1, temperature=0.6, image_path=None, strength=0.75, model_type="turbo", model_path=None):
     print(f"--> [Z-Image Worker] Starting process PID: {os.getpid()}", flush=True)
+    start_time = time.time()
 
     try:
         gc.collect()
@@ -113,7 +114,11 @@ def run_zimage(prompt, width, height, steps, guidance, seed, lora_config=None, t
         }
         if image_path:
              inputs_data["source_images"] = [image_path]
-        outputs_data = {"type": "image", "files": [os.path.basename(save_path)]}
+        outputs_data = {
+            "type": "image", 
+            "files": [os.path.basename(save_path)],
+            "exec_time": round(time.time() - start_time, 2)
+        }
 
         # Use standard "t2i"/"i2i" modes for history compatibility
         mode_str = "i2i" if image_path else "t2i" 

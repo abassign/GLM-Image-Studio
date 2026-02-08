@@ -9,7 +9,7 @@ WORKDIR /app
 
 # System deps
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    git wget libgl1 libglib2.0-0 build-essential python3-dev \
+    git wget libgl1 libglib2.0-0 build-essential python3-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip uninstall -y apex || true
@@ -37,6 +37,18 @@ RUN pip install --no-cache-dir --no-deps "git+https://github.com/huggingface/dif
 RUN pip install --no-cache-dir huggingface_hub regex requests tokenizers filelock safetensors pyyaml
 
 # Fix finale numpy
+# Fix finale numpy
 RUN pip install --force-reinstall "numpy<2.0"
+
+# --- SD.CPP BUILD ---
+# Clone and build stable-diffusion.cpp
+RUN git clone --recursive https://github.com/leejet/stable-diffusion.cpp /app/sdcpp_src && \
+    cd /app/sdcpp_src && \
+    mkdir build && cd build && \
+    cmake .. -DSD_HIPBLAS=ON -DAMDGPU_TARGETS=gfx1100 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON && \
+    make -j$(nproc) && \
+    cp bin/sd-cli /usr/local/bin/sd && \
+    chmod +x /usr/local/bin/sd && \
+    rm -rf /app/sdcpp_src
 
 CMD ["/bin/bash"]

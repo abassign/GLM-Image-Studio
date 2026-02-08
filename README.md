@@ -42,7 +42,15 @@
 *   **Unified Storage**: All uploads and generations are centrally managed in `outputs/` with automatic collision handling (auto-renaming).
 *   **Zero-Config Deploy**: Docker-based setup handles all ROCm dependencies and library conflicts.
 
+
+### ⚡ High-Performance C++ Backend
+*   **Extreme Speed**: 3x to 10x faster generation compared to standard Python pipelines.
+*   **Zero-Overhead**: Uses `stable-diffusion.cpp` directly for maximum efficiency on ROCm.
+*   **Availability**: Currently supported for **Text-to-Image (T2I)** and **Image-to-Image (I2I)** modes.
+*   **Usage**: Simply click the blue **"⚡ CPP Generate"** button instead of the standard Generate button.
+
 ---
+
 
 ## 🛠️ Prerequisites
 

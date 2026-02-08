@@ -27,6 +27,7 @@ from diffusers import DiffusionPipeline, StableDiffusionXLPipeline, StableDiffus
 
 def run_t2i(prompt, width, height, steps, guidance, seed, lora_config=None, top_k=1, temperature=0.6, model_path=None, clip_skip=1, scheduler=None):
     print(f"--> [T2I Worker] Starting process PID: {os.getpid()}", flush=True)
+    start_time = time.time()
 
     try:
         gc.collect()
@@ -229,7 +230,8 @@ def run_t2i(prompt, width, height, steps, guidance, seed, lora_config=None, top_
         # Outputs
         outputs_data = {
             "type": "image",
-            "files": [os.path.basename(save_path)]
+            "files": [os.path.basename(save_path)],
+            "exec_time": round(time.time() - start_time, 2)
         }
 
         shared_utils.save_generation_log("t2i", inputs_data, params_data, outputs_data, image_path_for_filename=save_path, model_name="glm-4")
@@ -254,7 +256,7 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--model_path", type=str, default=None)
     parser.add_argument("--clip_skip", type=int, default=1)
-    parser.add_argument("--scheduler", type=str, default="euler_a")
+    parser.add_argument("--scheduler", type=str, default="euler")
     args = parser.parse_args()
 
     run_t2i(args.prompt, args.width, args.height, args.steps, args.guidance, args.seed, args.lora_config, args.top_k, args.temperature, args.model_path, args.clip_skip, args.scheduler)

@@ -168,9 +168,53 @@ def scan_models(model_type_filter=None):
                 
     return None
 
-# --- Pydantic Models ---
+def scan_for_text_encoders(model_path):
+    """
+    Scans for text encoders (LLMs) associated with a model.
+    Looks in:
+    1. model_path/text_encoders/*.gguf
+    2. model_path/../text_encoders/*.gguf (sibling folder)
+    3. Global search in models types
+    """
+    if not model_path or not os.path.exists(model_path):
+        return []
+
+    encoders = []
+    
+    # helper to add unique
+    seen = set()
+    def add_enc(path, source):
+        if path not in seen:
+            encoders.append({"path": path, "name": os.path.basename(path), "source": source})
+            seen.add(path)
+
+    # 1. Direct subfolder
+    sub_te = os.path.join(model_path, "text_encoders")
+    if os.path.isdir(sub_te):
+        for f in os.listdir(sub_te):
+            if f.endswith(".gguf") and "qwen" in f.lower():
+                 add_enc(os.path.join(sub_te, f), "Embedded")
+
+    # 2. Sibling folder (common if model_path is a specific file or subfolder)
+    # If model_path is .../Z-Image-Turbo-GGUF/z_image.gguf
+    parent = os.path.dirname(model_path)
+    sibling_te = os.path.join(parent, "text_encoders")
+    if os.path.isdir(sibling_te):
+        for f in os.listdir(sibling_te):
+            if f.endswith(".gguf") and "qwen" in f.lower():
+                 add_enc(os.path.join(sibling_te, f), "Folder")
+
+    # 3. Z-Image-Turbo-GGUF common location
+    common_te = "/app/models/Z-Image-Turbo-GGUF/text_encoders"
+    if os.path.isdir(common_te):
+        for f in os.listdir(common_te):
+             if f.endswith(".gguf") and "qwen" in f.lower():
+                 add_enc(os.path.join(common_te, f), "Shared")
+
+    return encoders
 
 # --- Pydantic Models ---
+
 class LoraItem(BaseModel):
     folder: str
     filename: str
@@ -197,7 +241,9 @@ class GenRequest(BaseModel):
     face_enhance: Optional[bool] = False # For Restoration
     model_path: Optional[str] = None # Added for dynamic model selection
     clip_skip: Optional[int] = 1 # Added for Pony/Anime models
-    scheduler: Optional[str] = "euler_a" # Added for Sampler Selection
+    scheduler: Optional[str] = "euler" # Added for Sampler Selection
+    llm_path: Optional[str] = None # Added for Manual Text Encoder Selection
+    save_log: Optional[bool] = False # Added for Debug Logging
 
 class AnalyzeRequest(BaseModel):
     image_path: str
@@ -212,6 +258,12 @@ class DeleteRequest(BaseModel):
     filename: str
 
 # --- Endpoints ---
+
+@app.post("/api/text_encoders")
+async def get_text_encoders(payload: dict):
+    model_path = payload.get("model_path")
+    encoders = scan_for_text_encoders(model_path)
+    return {"encoders": encoders}
 
 @app.get("/")
 async def read_index():
@@ -312,8 +364,10 @@ async def get_history():
             elif "source_image" in raw_inputs: # V1 Legacy
                  if "source_image_1" not in params:
                      params["source_image_1"] = raw_inputs["source_image"]
-                 for k in ["source_image_1", "source_image_2", "source_image_3", "source_image_4"]:
-                    if k in raw_inputs: params[k] = raw_inputs[k]
+            
+            # Independent check for direct keys (Fix for I2I CPP)
+            for k in ["source_image_1", "source_image_2", "source_image_3", "source_image_4"]:
+                if k in raw_inputs: params[k] = raw_inputs[k]
 
             # Determine Image Filename for Display
             image_filename = None
@@ -464,6 +518,11 @@ async def list_models():
             for file in f:
                 # GGUF: Always include, even if internal
                 if file.endswith(".gguf"):
+                     # EXCLUDE LLMs (Text Encoders) from main list
+                     if "text_encoder" in rel_path or "text_encoder" in file:
+                         print(f"--> [System] Skipping Text Encoder in Model List: {rel_path}/{file}", flush=True)
+                         continue
+
                      m_id = os.path.join(rel_path, file)
                      models.append({
                         "id": m_id,
@@ -527,10 +586,7 @@ async def delete_model(req: DeleteModelRequest):
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-class DownloadModelRequest(BaseModel):
-    repo_id: str
-    token: Optional[str] = None
-    filenames: Optional[List[str]] = None
+
 
 class InspectModelRequest(BaseModel):
     repo_id: str
@@ -578,7 +634,23 @@ async def download_model(req: DownloadModelRequest):
         target_dir = os.path.join("/app/models", req.subdirectory)
     else:
         # Default: /app/models/{repo_name}
-        target_dir = os.path.join("/app/models", repo_name)
+        # If it is a URL, we need a broad folder name
+        if req.repo_id.startswith("http"):
+            # Use Civitai ID or hash
+            import hashlib
+            slug = hashlib.md5(req.repo_id.encode()).hexdigest()[:8]
+            # Try to be more descriptive if possible
+            if "civitai" in req.repo_id and "/models/" in req.repo_id:
+                 try:
+                     # Extract ID
+                     cid = req.repo_id.split("/models/")[1].split("?")[0].split("/")[0]
+                     slug = f"Civitai-{cid}"
+                 except: pass
+            
+            repo_name = slug
+            target_dir = os.path.join("/app/models", repo_name)
+        else:
+            target_dir = os.path.join("/app/models", repo_name)
     
     if os.path.exists(target_dir):
         # Only skip if NOT doing selective download (which might add files)
@@ -678,6 +750,7 @@ async def generate(req: GenRequest):
     else: final_seed = req.seed
 
     print(f"--> [Server] Request Mode: {req.mode} | Noise: {req.noise_level} | Scale: {req.scale}", flush=True)
+    print(f"--> [Server] Model Path: {req.model_path} | Scheduler: {req.scheduler}", flush=True)
 
     lora_data = [{"path": os.path.join(l.folder, l.filename), "strength": l.strength} for l in req.loras]
     config_path = lora_manager.create_config_json(lora_data)
@@ -728,6 +801,44 @@ async def generate(req: GenRequest):
         final_scale = req.scale if req.scale is not None else 4.0
         
         cmd = ["python", "-u", "process_upscale.py", "--image_path", req.init_image, "--seed", str(final_seed), "--noise_level", str(final_noise), "--prompt", p_arg, "--steps", str(req.steps), "--guidance", str(req.guidance), "--scale", str(final_scale)]
+    elif req.mode == "t2i_cpp":
+        cmd = [sys.executable, "-u", "process_t2i_cpp.py", "--prompt", req.prompt, "--width", str(req.width), "--height", str(req.height), "--steps", str(req.steps), "--guidance", str(req.guidance), "--seed", str(final_seed), "--lora_config", config_path, "--top_k", str(req.top_k), "--temperature", str(req.temperature), "--clip_skip", str(req.clip_skip or 1)]
+        if req.model_path:
+             cmd.extend(["--model_path", req.model_path])
+        if req.scheduler:
+             cmd.extend(["--scheduler", req.scheduler])
+    elif req.mode == "i2i_cpp":
+        if not req.init_image or not os.path.exists(req.init_image):
+             return JSONResponse(content={"error": "Init image required for CPP I2I"}, status_code=400)
+
+        cmd = [sys.executable, "-u", "process_i2i_cpp.py", 
+               "--prompt", req.prompt, 
+               "--width", str(req.width), 
+               "--height", str(req.height), 
+               "--steps", str(req.steps), 
+               "--guidance", str(req.guidance), 
+               "--seed", str(final_seed), 
+               "--lora_config", config_path, 
+               "--top_k", str(req.top_k), 
+               "--temperature", str(req.temperature), 
+               "--clip_skip", str(req.clip_skip or 1),
+               "--init_img", req.init_image,
+               "--strength", str(req.strength)
+        ]
+        if req.model_path:
+             cmd.extend(["--model_path", req.model_path])
+        if req.scheduler:
+             cmd.extend(["--scheduler", req.scheduler])
+        # Pass LLM Path if present in request (though request object might need update if we pass it from frontend)
+        # Actually standard GenerateRequest might not have llm_path field yet? 
+        # Let's check GenerateRequest definition. 
+        # Assuming we receive it or it's part of extra args. 
+        # For now, let's verify GenerateRequest first or add it via **kwargs if flexible. 
+        # Wait, I added it to t2i_cpp logic previously? 
+        # Let's check lines 787... in view.
+        if hasattr(req, "llm_path") and req.llm_path:
+            cmd.extend(["--llm_path", req.llm_path])
+
     elif req.mode == "restore":
         if not req.init_image or not os.path.exists(req.init_image):
              return JSONResponse(content={"error": "Input image required for Restoration"}, status_code=400)
@@ -736,11 +847,23 @@ async def generate(req: GenRequest):
         if req.face_enhance:
             cmd.append("--face_enhance")
     elif req.mode == "t2i":
-        cmd = [sys.executable, "-u", "process_t2i.py", "--prompt", req.prompt, "--width", str(req.width), "--height", str(req.height), "--steps", str(req.steps), "--guidance", str(req.guidance), "--seed", str(final_seed), "--lora_config", config_path, "--top_k", str(req.top_k), "--temperature", str(req.temperature), "--clip_skip", str(req.clip_skip or 1)]
-        if req.model_path:
-             cmd.extend(["--model_path", req.model_path])
-        if req.scheduler:
-             cmd.extend(["--scheduler", req.scheduler])
+        # Check if the selected model is Z-Image (Diffusers version)
+        # If so, redirect to Z-Image worker logic
+        is_zimage_diffusers = False
+        if req.model_path and "z-image" in req.model_path.lower() and not req.model_path.endswith(".gguf"):
+             # It's likely a Z-Image Diffusers folder or file
+             is_zimage_diffusers = True
+        
+        if is_zimage_diffusers:
+             print(f"--> [Server] Z-Image Diffusers Model Detected: {req.model_path}. Redirecting to Z-Image Worker.")
+             cmd = ["python", "-u", "process_zimage.py", "--prompt", req.prompt, "--width", str(req.width), "--height", str(req.height), "--steps", str(req.steps), "--guidance", str(req.guidance), "--seed", str(final_seed), "--lora_config", config_path, "--top_k", str(req.top_k), "--temperature", str(req.temperature)]
+             cmd.extend(["--model_path", req.model_path, "--model_type", "standard"])
+        else:
+            cmd = [sys.executable, "-u", "process_t2i.py", "--prompt", req.prompt, "--width", str(req.width), "--height", str(req.height), "--steps", str(req.steps), "--guidance", str(req.guidance), "--seed", str(final_seed), "--lora_config", config_path, "--top_k", str(req.top_k), "--temperature", str(req.temperature), "--clip_skip", str(req.clip_skip or 1)]
+            if req.model_path:
+                 cmd.extend(["--model_path", req.model_path])
+            if req.scheduler:
+                 cmd.extend(["--scheduler", req.scheduler])
 
     def event_generator():
         global current_process
@@ -751,6 +874,8 @@ async def generate(req: GenRequest):
             
             # Robust read buffer
             line_buffer = b""
+            full_log_buffer = []
+            target_log_path = None
             
             while True:
                 if current_process is None: break 
@@ -762,63 +887,99 @@ async def generate(req: GenRequest):
                 if r:
                     # Read chunk
                     chunk = current_process.stdout.read(1024)
-                    if not chunk: pass # Might be EOF later
+                    if not chunk: 
+                        # EOF probably
+                        pass 
                     else:
                         line_buffer += chunk
                         
-                        # Split by both \n and \r
                         while True:
-                            # Find first delimiter
-                            # We prefer \n as it is definite line end
-                            # But \r is used for progress bars
+                            # Process line by line
+                            # We want to split by \n to get clean lines for log
+                            # But also handle \r for progress bars if needed (though less critical for log file)
                             
-                            idx_n = line_buffer.find(b'\n')
-                            idx_r = line_buffer.find(b'\r')
+                            idx = line_buffer.find(b'\n')
+                            if idx == -1: break
                             
-                            idx = -1
-                            is_r = False
-                            
-                            if idx_n != -1 and idx_r != -1:
-                                if idx_n < idx_r: idx = idx_n
-                                else: 
-                                    idx = idx_r
-                                    is_r = True
-                            elif idx_n != -1: idx = idx_n
-                            elif idx_r != -1: 
-                                idx = idx_r
-                                is_r = True
-                                
-                            if idx == -1: break # No delimiter yet
-                            
-                            # Extract line
-                            raw_line = line_buffer[:idx]
-                            line_buffer = line_buffer[idx+1:] # Skip delimiter
+                            line_bytes = line_buffer[:idx+1]
+                            line_buffer = line_buffer[idx+1:]
                             
                             try:
-                                clean = raw_line.decode("utf-8", errors="ignore").strip()
-                                if clean:
-                                    yield f"data: LOG|{clean}\n\n"
-                                    if "SUCCESS_OUTPUT:" in clean:
-                                        img_path = clean.replace("SUCCESS_OUTPUT:", "").strip()
-                                        yield f"data: IMG|/outputs/{os.path.basename(img_path)}\n\n"
-                                    if "DTOOL_REF:" in clean:
-                                        ref_path = clean.replace("DTOOL_REF:", "").strip()
-                                        yield f"data: REF|/outputs/{os.path.basename(ref_path)}\n\n"
-                            except: pass
+                                line = line_bytes.decode('utf-8', errors='replace')
+                                clean = line.strip()
+                                
+                                # Buffer for log file
+                                if req.save_log:
+                                    full_log_buffer.append(line)
 
-                if current_process.poll() is not None: 
-                    # Process exited, flush remaining buffer?
-                    if line_buffer:
+                                if "SUCCESS_OUTPUT:" in clean:
+                                    parts = clean.split("SUCCESS_OUTPUT:")
+                                    if len(parts) > 1:
+                                        final_path = parts[1].strip()
+                                        
+                                        # Determine Log Path (Using Absolute Path)
+                                        if req.save_log and not target_log_path:
+                                            # Ensure we have an absolute path for writing
+                                            log_base = final_path
+                                            if not log_base.startswith("/"):
+                                                # If relative, prepend outputs dir
+                                                log_base = os.path.join("/app/outputs", log_base)
+                                            # If it starts with /outputs/ (web path), correct to /app/outputs/
+                                            elif log_base.startswith("/outputs/"):
+                                                log_base = "/app" + log_base
+                                            
+                                            base, _ = os.path.splitext(log_base)
+                                            target_log_path = base + ".log"
+
+                                        # Fix for frontend: convert absolute path to URL path
+                                        if final_path.startswith("/app/outputs/"):
+                                            final_path = final_path.replace("/app/outputs/", "/outputs/")
+                                        elif not final_path.startswith("/"):
+                                            # relative path
+                                            final_path = "/outputs/" + final_path
+                                            
+                                        yield f"data: IMG|{final_path}\n\n"
+
+                                elif "REF_OUTPUT:" in clean:
+                                     parts = clean.split("REF_OUTPUT:")
+                                     if len(parts) > 1:
+                                         ref_path = parts[1].strip()
+                                         if ref_path.startswith("/app/outputs/"):
+                                             ref_path = ref_path.replace("/app/outputs/", "/outputs/")
+                                         yield f"data: REF|{ref_path}\n\n"
+                                elif clean:
+                                    yield f"data: LOG|{clean}\n\n"
+                            except:
+                                pass
+
+                if current_process.poll() is not None:
+                     # Check for remaining buffer
+                     if line_buffer:
                          try:
-                            clean = line_buffer.decode("utf-8", errors="ignore").strip()
-                            if clean: yield f"data: LOG|{clean}\n\n"
+                             line = line_buffer.decode('utf-8', errors='replace')
+                             clean = line.strip()
+                             if req.save_log: full_log_buffer.append(line + "\n")
+                             if clean: yield f"data: LOG|{clean}\n\n"
                          except: pass
-                    break
+                     break
+            
+            # End of Process - Save Log
+            if req.save_log and target_log_path and full_log_buffer:
+                try:
+                    with open(target_log_path, "w") as lf:
+                        lf.writelines(full_log_buffer)
+                    print(f"--> [System] Saved Log to {target_log_path}", flush=True)
+                except Exception as e:
+                    print(f"--> [System] Failed to save log: {e}", flush=True)
 
             if current_process.returncode == 0: yield f"data: DONE|Finished in {time.time()-start_t:.1f}s\n\n"
             else: yield f"data: ERR|Process exited with code {current_process.returncode}\n\n"
-        except Exception as e: yield f"data: ERR|{str(e)}\n\n"
-        finally: current_process = None
+                                
+
+        except Exception as e:
+            yield f"data: ERR|{str(e)}\n\n"
+        finally:
+            current_process = None
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

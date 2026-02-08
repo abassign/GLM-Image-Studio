@@ -24,7 +24,7 @@
         <div style="flex:1"></div>
         <button id="btn-exit" class="btn btn-danger">EXIT</button>
     </div>
-    </div>
+
 
     <div class="main-layout" style="flex-direction: column;">
         <!-- 1. FULL WIDTH STATUS BAR -->
@@ -187,16 +187,29 @@
                             <option value="loading">Loading Models...</option>
                         </select>
 
+
+
                         <!-- ADD MODEL ROW (Hidden) -->
                         <div id="model-add-row" class="row hidden"
                             style="margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px;">
                             <input type="text" id="hf-repo-input" class="input-text" style="flex:1; font-size:11px;"
-                                placeholder="Author/Repo (e.g. stabilityai/sdxl-turbo)">
+                                placeholder="Author/Repo OR Civitai URL (e.g. civitai.com/models/...)">
+                            <input type="password" id="api-token-input" class="input-text"
+                                style="width: 120px; font-size:11px; margin-left:5px;"
+                                placeholder="API Token (Optional)">
                             <button id="btn-inspect-model" class="btn-sm" onclick="inspectModel()" title="Check files"
                                 style="margin-left:5px;">🔍 Check</button>
                             <button id="btn-get-model" class="btn-sm" onclick="downloadModel()"
                                 style="margin-left:5px;">Get Model</button>
                         </div>
+                    </div>
+
+                    <!-- Text Encoder Selector (Separate Group) -->
+                    <div id="llm-select-container" class="group hidden">
+                        <label for="llm-select">Text Encoder (LLM):</label>
+                        <select id="llm-select" class="input-text full-width" style="font-size: 11px; margin-top: 5px;">
+                            <option value="auto">Auto-Detect</option>
+                        </select>
                     </div>
 
                     <!-- MODEL INSPECT MODAL -->
@@ -220,6 +233,23 @@
                                 <button class="btn btn-sm" onclick="closeInspectModal()">Cancel</button>
                                 <button class="btn btn-sm" style="background:var(--accent);"
                                     onclick="downloadSelectedFiles()">Download Selected</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- JSON VIEW MODAL -->
+                    <div id="json-view-modal" class="modal-overlay hidden">
+                        <div class="modal-content" style="width: 600px; max-width: 90vw;">
+                            <div class="modal-header">
+                                <span>Image Metadata</span>
+                                <button class="close-btn" onclick="closeJsonModal()">×</button>
+                            </div>
+                            <div class="modal-body" style="padding:0;">
+                                <textarea id="json-output" readonly
+                                    style="width:100%; height:400px; background:#111; color:#0f0; border:none; padding:10px; font-family:monospace; resize:none; outline:none;"></textarea>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-sm" onclick="closeJsonModal()">Close</button>
                             </div>
                         </div>
                     </div>
@@ -251,8 +281,8 @@
                             <label for="scheduler-select">Scheduler (Sampler):</label>
                         </div>
                         <select id="scheduler-select" class="input-text full-width" style="margin-bottom: 10px;">
-                            <option value="euler_a" selected>Euler Ancestral (Recommended)</option>
-                            <option value="euler">Euler</option>
+                            <option value="euler_a">Euler Ancestral (Recommended)</option>
+                            <option value="euler" selected>Euler</option>
                             <option value="dpm++_2m_karras">DPM++ 2M Karras (Detail)</option>
                             <option value="dpm++_sde_karras">DPM++ SDE Karras (Quality/Slow)</option>
                             <option value="ddim">DDIM (Fast)</option>
@@ -316,7 +346,30 @@
                     <button id="btn-add-lora" class="btn-dashed">+ Add LoRA Slot</button>
                 </div>
 
-                <button id="btn-generate" class="btn btn-primary btn-lg">🚀 GENERATE IMAGE</button>
+                <div class="row" style="margin-top: 15px; margin-bottom: 5px; gap: 5px;">
+                    <button id="btn-generate" class="btn btn-primary btn-lg" style="flex:1"
+                        onclick="handleGeneration('std')">🚀 GENERATE
+                        IMAGE</button>
+                    <button id="btn-generate-cpp" class="btn btn-lg"
+                        style="flex:1; background-color: #0d47a1; color: white; border: none; padding: 12px; font-size: 14px;"
+                        onclick="handleGeneration('cpp')">⚡ CPP Generate</button>
+                    <button id="btn-stop" class="btn danger hidden" onclick="stopGeneration()">🛑 STOP</button>
+                </div>
+
+                <!-- DEBUG PANEL -->
+                <details
+                    style="margin-bottom: 10px; border: 1px solid #444; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                    <summary style="padding: 5px 10px; cursor: pointer; font-size: 11px; color: #888;">🛠️ Debug Options
+                    </summary>
+                    <div style="padding: 10px;">
+                        <label class="checkbox-container">Save Generation Log
+                            <input type="checkbox" id="save-log-checkbox">
+                            <span class="checkmark"></span>
+                        </label>
+                        <div style="font-size:10px; color:#aaa; margin-left:25px;">Saves a .log file alongside the
+                            image.</div>
+                    </div>
+                </details>
             </div>
 
             <!-- Right Section: Preview + History -->
@@ -405,7 +458,7 @@
         </div>
     </div>
 
-    <script src="script.js?v=9"></script>
+    <script src="script.js?v=10"></script>
 </body>
 
 </html>
